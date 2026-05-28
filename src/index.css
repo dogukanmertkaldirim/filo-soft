@@ -1,0 +1,117 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.sidebar-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+}
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+.sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
+}
+
+@media print {
+  /* 1. Reset the main layout containers so they don't clip content */
+  html, body, #root {
+    height: auto !important;
+    overflow: visible !important;
+    position: static !important;
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* 2. Hide non-printable elements completely */
+  nav,
+  aside,
+  header,
+  .sidebar,
+  .header,
+  .no-print,
+  button,
+  .modal-close-btn,
+  .modal-overlay,
+  [class*="lucide-"],
+  input[type="button"],
+  input[type="submit"] {
+    display: none !important;
+  }
+
+  /* 3. Target the Contract Modal and print containers specifically */
+  .modal-content,
+  .contract-container,
+  .print-container {
+    position: static !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    border: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+    max-height: none !important;
+    transform: none !important;
+  }
+
+  /* Make print content visible */
+  .print-container,
+  .print-container * {
+    visibility: visible !important;
+  }
+
+  /* 4. Page Break Logic (Don't cut signatures in half) */
+  .page-break {
+    page-break-before: always;
+    break-before: always;
+  }
+
+  .no-break,
+  .signature-section,
+  .terms-section {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* Avoid breaking after headings */
+  h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  /* 5. Font Sizing for Paper */
+  body {
+    font-size: 12pt !important;
+    color: black !important;
+    background: white !important;
+  }
+
+  /* 6. Table styling for print */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+
+  /* 7. Ensure proper spacing */
+  * {
+    box-sizing: border-box;
+  }
+
+  @page {
+    size: A4;
+    margin: 15mm;
+  }
+}
