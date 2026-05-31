@@ -456,6 +456,13 @@ export default function Dashboard() {
                     <p className="font-bold">{stats.pendingRequests.damages}</p>
                   </div>
                 )}
+                {stats.pendingRequests.driverSubmissions > 0 && (
+                  <div className="bg-white/20 rounded-lg p-2 text-center">
+                    <AlertTriangle className="h-4 w-4 mx-auto mb-1 opacity-80" />
+                    <p className="text-xs opacity-80">Sofor</p>
+                    <p className="font-bold">{stats.pendingRequests.driverSubmissions}</p>
+                  </div>
+                )}
               </div>
               <p className="text-xs text-white/70 mt-3 flex items-center gap-1">
                 Goruntule <ChevronRight className="h-3 w-3" />

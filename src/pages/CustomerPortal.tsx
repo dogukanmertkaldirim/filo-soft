@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Car, FileText, MessageSquare, Wallet, CreditCard, CheckCircle, AlertCircle, Calendar, AlertOctagon, Truck, Users, User, ClipboardCheck } from 'lucide-react';
+import { Car, FileText, MessageSquare, Wallet, CreditCard, CheckCircle, AlertCircle, Calendar, AlertOctagon, Truck, Users, User, ClipboardCheck, ClipboardList, Wrench } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { formatCurrency } from '../utils/format';
@@ -16,6 +16,8 @@ import EmergencySOS from '../components/customer/EmergencySOS';
 import TransferRequests from '../components/customer/TransferRequests';
 import DriverManagement from '../components/customer/DriverManagement';
 import MyWallet from '../components/customer/MyWallet';
+import DriverApprovals from '../components/customer/DriverApprovals';
+import TenantServiceAppointments from '../components/customer/TenantServiceAppointments';
 
 interface Vehicle {
   id: string;
@@ -33,7 +35,7 @@ interface DriverAssignment {
   driver_name: string;
 }
 
-type TabType = 'home' | 'documents' | 'requests' | 'finance' | 'services' | 'damage' | 'handovers' | 'transfer' | 'drivers' | 'wallet';
+type TabType = 'home' | 'documents' | 'requests' | 'finance' | 'services' | 'damage' | 'handovers' | 'transfer' | 'drivers' | 'wallet' | 'driver_approvals' | 'service_schedule';
 
 export default function CustomerPortal() {
   const { user, companyId, company } = useAuth();
@@ -44,6 +46,7 @@ export default function CustomerPortal() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [totalDebt, setTotalDebt] = useState(0);
   const [pendingRequests, setPendingRequests] = useState(0);
+  const [pendingDriverSubmissions, setPendingDriverSubmissions] = useState(0);
   const [upcomingAppointments, setUpcomingAppointments] = useState(0);
 
   useEffect(() => {
@@ -129,6 +132,14 @@ export default function CustomerPortal() {
         .gte('appointment_date', new Date().toISOString());
 
       setUpcomingAppointments(appointmentCount || 0);
+
+      const { count: driverSubCount } = await supabase
+        .from('driver_submissions')
+        .select('*', { count: 'exact', head: true })
+        .eq('tenant_customer_id', user.id)
+        .eq('status', 'pending_tenant');
+
+      setPendingDriverSubmissions(driverSubCount || 0);
     }
 
     setLoading(false);
@@ -290,6 +301,46 @@ export default function CustomerPortal() {
               </div>
             </button>
           )}
+
+          <button
+            onClick={() => setActiveTab('driver_approvals')}
+            className="w-full p-4 bg-gradient-to-r from-teal-600 to-teal-700 rounded-xl shadow-sm text-left text-white relative"
+          >
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-white/20 rounded-lg backdrop-blur-sm">
+                <ClipboardList className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold">Sofor Talepleri & Fisler</p>
+                <p className="text-xs text-teal-100 mt-0.5">KM, hasar, ariza onaylari</p>
+              </div>
+            </div>
+            {pendingDriverSubmissions > 0 && (
+              <span className="absolute top-3 right-3 w-6 h-6 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                {pendingDriverSubmissions}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveTab('service_schedule')}
+            className="w-full p-4 bg-gradient-to-r from-sky-600 to-sky-700 rounded-xl shadow-sm text-left text-white relative"
+          >
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-white/20 rounded-lg backdrop-blur-sm">
+                <Wrench className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold">Servis ve Bakim Randevulari</p>
+                <p className="text-xs text-sky-100 mt-0.5">Randevulara surucu atayin</p>
+              </div>
+            </div>
+            {upcomingAppointments > 0 && (
+              <span className="absolute top-3 right-3 w-6 h-6 bg-white text-sky-700 text-xs font-bold rounded-full flex items-center justify-center">
+                {upcomingAppointments}
+              </span>
+            )}
+          </button>
 
           <button
             onClick={() => setActiveTab('damage')}
@@ -510,6 +561,38 @@ export default function CustomerPortal() {
             companyId={companyId}
             vehicles={vehicles}
             onAssignmentChange={loadData}
+          />
+        </div>
+      )}
+
+      {activeTab === 'driver_approvals' && user && companyId && (
+        <div className="space-y-4">
+          <button
+            onClick={() => setActiveTab('home')}
+            className="text-sm text-teal-600 font-medium flex items-center gap-1 mb-2"
+          >
+            ← Ana Sayfa
+          </button>
+          <h2 className="text-lg font-bold text-slate-900">Sofor Talepleri & Fisler</h2>
+          <p className="text-sm text-slate-500">Soforlerinizin gonderdiği KM, hasar, ariza ve masraf fislerini onaylayarak DMK Filo'ya iletin.</p>
+          <DriverApprovals userId={user.id} companyId={companyId} />
+        </div>
+      )}
+
+      {activeTab === 'service_schedule' && user && companyId && (
+        <div className="space-y-4">
+          <button
+            onClick={() => setActiveTab('home')}
+            className="text-sm text-teal-600 font-medium flex items-center gap-1 mb-2"
+          >
+            ← Ana Sayfa
+          </button>
+          <h2 className="text-lg font-bold text-slate-900">Servis ve Bakim Randevulari</h2>
+          <p className="text-sm text-slate-500">DMK Filo tarafindan olusturulan randevulara surucu atayin.</p>
+          <TenantServiceAppointments
+            userId={user.id}
+            companyId={companyId}
+            vehicleIds={vehicleIds}
           />
         </div>
       )}

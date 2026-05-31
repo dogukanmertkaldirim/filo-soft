@@ -32,6 +32,7 @@ interface PendingRequests {
   receipts: number;
   maintenance: number;
   damages: number;
+  driverSubmissions: number;
   total: number;
 }
 
@@ -64,7 +65,7 @@ const initialStats: DashboardStats = {
   totalLoanDebt: 0,
   monthlyLoanPayment: 0,
   occupancyRate: 0,
-  pendingRequests: { extensions: 0, kmReports: 0, receipts: 0, maintenance: 0, damages: 0, total: 0 },
+  pendingRequests: { extensions: 0, kmReports: 0, receipts: 0, maintenance: 0, damages: 0, driverSubmissions: 0, total: 0 },
 };
 
 function getDaysUntil(dateStr: string | null): number {
@@ -113,6 +114,7 @@ export function useDashboardStats() {
         reservationsRes,
         customerRequestsRes,
         damageReportsRes,
+        driverSubmissionsRes,
       ] = await Promise.all([
         supabase.from('vehicles').select('*').eq('company_id', effectiveCompanyId).is('deleted_at', null),
         supabase.from('rentals').select('*, customers(company_title)').eq('company_id', effectiveCompanyId).eq('status', 'active'),
@@ -123,6 +125,7 @@ export function useDashboardStats() {
         supabase.from('reservations').select('*, vehicles(plate), customers(company_title)').eq('company_id', effectiveCompanyId).eq('status', 'confirmed').gte('start_date', today.toISOString().split('T')[0]).lte('start_date', threeDaysLater.toISOString().split('T')[0]),
         supabase.from('customer_requests').select('request_type').eq('company_id', effectiveCompanyId).eq('status', 'pending'),
         supabase.from('damage_reports').select('id').eq('company_id', effectiveCompanyId).in('status', ['pending', 'in_progress']),
+        supabase.from('driver_submissions').select('id').eq('company_id', effectiveCompanyId).eq('status', 'approved_pending_lessor'),
       ]);
 
       const vehicles: Vehicle[] = vehiclesRes.data || [];
@@ -134,6 +137,7 @@ export function useDashboardStats() {
       const reservations = reservationsRes.data || [];
       const customerRequests = customerRequestsRes.data || [];
       const damageReports = damageReportsRes.data || [];
+      const driverSubs = driverSubmissionsRes.data || [];
 
       const pendingRequests: PendingRequests = {
         extensions: customerRequests.filter((r: any) => r.request_type === 'extend_rental').length,
@@ -141,7 +145,8 @@ export function useDashboardStats() {
         receipts: customerRequests.filter((r: any) => r.request_type === 'payment_receipt').length,
         maintenance: customerRequests.filter((r: any) => r.request_type === 'maintenance_request').length,
         damages: damageReports.length,
-        total: customerRequests.length + damageReports.length,
+        driverSubmissions: driverSubs.length,
+        total: customerRequests.length + damageReports.length + driverSubs.length,
       };
 
       const activeVehicles = vehicles.filter(v => v.status !== 'sold');
