@@ -56,11 +56,12 @@ export default function DriverPortal() {
     if (!user?.id) return;
     setLoading(true);
 
+    // Primary path: check customer_drivers table for direct vehicle assignment
     const { data: driverData } = await supabase
       .from('customer_drivers')
       .select(`
         *,
-        customers:customer_id (full_name, company_id),
+        tenant:customer_id (full_name),
         vehicles:assigned_vehicle_id (*)
       `)
       .eq('app_user_id', user.id)
@@ -69,11 +70,29 @@ export default function DriverPortal() {
 
     if (driverData) {
       setDriverInfo(driverData);
+
       if (driverData.assigned_vehicle_id && driverData.vehicles) {
         setAssignedVehicle({
           ...driverData.vehicles,
-          customer_name: (driverData.customers as any)?.full_name
+          customer_name: (driverData.tenant as any)?.full_name || null,
         });
+      } else {
+        // Fallback: check vehicle_driver_assignments for an active assignment
+        const { data: assignment } = await supabase
+          .from('vehicle_driver_assignments')
+          .select('vehicle_id, vehicles(*)')
+          .eq('driver_id', driverData.id)
+          .eq('company_id', user.company_id)
+          .order('assigned_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (assignment?.vehicles) {
+          setAssignedVehicle({
+            ...(assignment.vehicles as any),
+            customer_name: (driverData.tenant as any)?.full_name || null,
+          });
+        }
       }
 
       // Load appointments assigned to this driver
