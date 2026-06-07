@@ -1,4 +1,4 @@
-import { Key, FileText, ScrollText, History, Banknote, Car, Handshake, CornerDownLeft, FileSearch, Printer, ShieldAlert, RefreshCw, UserCheck, CreditCard as Edit2, Trash2 } from 'lucide-react';
+import { Key, FileText, ScrollText, History, Banknote, Car, Handshake, CornerDownLeft, FileSearch, Printer, ShieldAlert, RefreshCw, UserCheck, CreditCard as Edit2, Trash2, Shield } from 'lucide-react';
 import type { Vehicle, Rental, Customer, CompanyProfile, AppUser } from '../../types/database';
 import Modal from '../ui/Modal';
 
@@ -207,6 +207,41 @@ export default function VehicleActionsModal({
               >
                 <FileText className="h-3.5 w-3.5" />
                 Tedarik Sozlesmesini Goruntule
+              </a>
+            )}
+          </div>
+        )}
+
+        {/* UTTS Info Badge */}
+        {(vehicle as any).utts_installed && (
+          <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-200">
+            <div className="flex items-center gap-2 mb-2">
+              <Shield className="h-4 w-4 text-indigo-600" />
+              <span className="text-xs font-semibold text-indigo-800">UTTS / Tasitmatik Bilgileri</span>
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+              {(vehicle as any).utts_installation_no && (
+                <div>
+                  <span className="text-slate-500">Montaj No:</span>{' '}
+                  <span className="font-medium text-slate-900">{(vehicle as any).utts_installation_no}</span>
+                </div>
+              )}
+              {(vehicle as any).utts_installation_code && (
+                <div>
+                  <span className="text-slate-500">Montaj Kodu:</span>{' '}
+                  <span className="font-medium text-slate-900">{(vehicle as any).utts_installation_code}</span>
+                </div>
+              )}
+            </div>
+            {(vehicle as any).utts_receipt_url && (
+              <a
+                href={(vehicle as any).utts_receipt_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-flex items-center gap-2 px-3 py-2 bg-white border border-indigo-200 rounded-lg text-xs font-medium text-indigo-700 hover:bg-indigo-100 transition-colors"
+              >
+                <FileText className="h-3.5 w-3.5" />
+                Odeme Dekontunu Goruntule
               </a>
             )}
           </div>

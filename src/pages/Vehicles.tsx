@@ -95,6 +95,10 @@ interface VehicleFormData {
   supplier_start_date: string;
   supplier_end_date: string;
   supplier_contract_url: string | null;
+  utts_installed: boolean;
+  utts_installation_no: string;
+  utts_installation_code: string;
+  utts_receipt_url: string | null;
 }
 
 type SortField = 'plate' | 'brand' | 'status' | 'monthly_income' | 'created_at' | 'year' | 'start_date' | 'end_date' | 'loan_amount' | 'customer';
@@ -146,6 +150,10 @@ const emptyForm: VehicleFormData = {
   supplier_start_date: '',
   supplier_end_date: '',
   supplier_contract_url: null,
+  utts_installed: false,
+  utts_installation_no: '',
+  utts_installation_code: '',
+  utts_receipt_url: null,
 };
 
 export default function Vehicles() {
@@ -567,6 +575,10 @@ export default function Vehicles() {
       supplier_start_date: vehicle.supplier_start_date || '',
       supplier_end_date: vehicle.supplier_end_date || '',
       supplier_contract_url: vehicle.supplier_contract_url || null,
+      utts_installed: (vehicle as any).utts_installed || false,
+      utts_installation_no: (vehicle as any).utts_installation_no || '',
+      utts_installation_code: (vehicle as any).utts_installation_code || '',
+      utts_receipt_url: (vehicle as any).utts_receipt_url || null,
     });
     setShowForm(true);
   }
@@ -637,6 +649,10 @@ export default function Vehicles() {
       supplier_start_date: formData.ownership_type === 'kiralik' ? (formData.supplier_start_date || null) : null,
       supplier_end_date: formData.ownership_type === 'kiralik' ? (formData.supplier_end_date || null) : null,
       supplier_contract_url: formData.ownership_type === 'kiralik' ? (formData.supplier_contract_url || null) : null,
+      utts_installed: formData.utts_installed,
+      utts_installation_no: formData.utts_installed ? (formData.utts_installation_no || null) : null,
+      utts_installation_code: formData.utts_installed ? (formData.utts_installation_code || null) : null,
+      utts_receipt_url: formData.utts_installed ? (formData.utts_receipt_url || null) : null,
       company_id: companyId,
     };
 
@@ -2863,6 +2879,84 @@ export default function Vehicles() {
                   </>
                 )}
               </div>
+            </div>
+          </div>
+
+          {/* UTTS / Tasitmatik Section */}
+          <div className="border-t border-slate-200 pt-4">
+            <h3 className="font-medium text-slate-900 mb-4 flex items-center gap-2">
+              <Shield className="h-4 w-4 text-slate-500" />
+              UTTS / Tasitmatik Bilgileri
+            </h3>
+            <div className="space-y-4">
+              <label className="relative inline-flex items-center gap-3 cursor-pointer group">
+                <div className="relative">
+                  <input
+                    type="checkbox"
+                    checked={formData.utts_installed}
+                    onChange={(e) => setFormData({ ...formData, utts_installed: e.target.checked })}
+                    className="sr-only peer"
+                  />
+                  <div className="w-10 h-5 bg-slate-200 rounded-full peer-checked:bg-teal-500 transition-colors" />
+                  <div className="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow-sm peer-checked:translate-x-5 transition-transform" />
+                </div>
+                <span className="text-sm font-medium text-slate-700 group-hover:text-slate-900">UTTS / Tasitmatik Monte Edildi mi?</span>
+              </label>
+              {formData.utts_installed && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-1">
+                  <Input
+                    label="Montaj Numarasi"
+                    value={formData.utts_installation_no}
+                    onChange={(e) => setFormData({ ...formData, utts_installation_no: e.target.value })}
+                    placeholder="UTTS montaj numarasi"
+                  />
+                  <Input
+                    label="Montaj Kodu"
+                    value={formData.utts_installation_code}
+                    onChange={(e) => setFormData({ ...formData, utts_installation_code: e.target.value })}
+                    placeholder="UTTS montaj kodu"
+                  />
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Odeme Dekontu</label>
+                    {formData.utts_receipt_url ? (
+                      <div className="flex items-center gap-2">
+                        <a
+                          href={formData.utts_receipt_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-teal-600 underline"
+                        >
+                          Dekontu Goruntule
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => setFormData({ ...formData, utts_receipt_url: null })}
+                          className="text-xs text-red-500 hover:text-red-700"
+                        >
+                          Kaldir
+                        </button>
+                      </div>
+                    ) : (
+                      <input
+                        type="file"
+                        accept="image/*,application/pdf"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const ext = file.name.split('.').pop();
+                          const path = `utts/${companyId}/${Date.now()}.${ext}`;
+                          const { error } = await supabase.storage.from('documents').upload(path, file, { contentType: file.type });
+                          if (!error) {
+                            const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path);
+                            setFormData({ ...formData, utts_receipt_url: urlData.publicUrl });
+                          }
+                        }}
+                        className="w-full text-sm text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-teal-50 file:text-teal-700 hover:file:bg-teal-100"
+                      />
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
