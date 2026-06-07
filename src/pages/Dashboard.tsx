@@ -470,6 +470,44 @@ export default function Dashboard() {
             </div>
           )}
 
+          {/* P&L Mini Summary */}
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <DollarSign className="h-5 w-5 text-teal-600" />
+                <h2 className="font-semibold text-slate-900">Bu Ay Kar/Zarar Ozeti</h2>
+              </div>
+              <button
+                onClick={() => navigate('/reports')}
+                className="text-xs text-teal-600 hover:text-teal-700 flex items-center gap-1"
+              >
+                Detay <ChevronRight className="h-3 w-3" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-3 bg-green-50 rounded-lg">
+                <p className="text-[10px] font-medium text-green-700 mb-0.5">Gelir</p>
+                <p className="text-sm font-bold text-green-800">{formatCurrency(stats.monthlyRevenue)} TL</p>
+              </div>
+              <div className="p-3 bg-red-50 rounded-lg">
+                <p className="text-[10px] font-medium text-red-700 mb-0.5">Filo Gideri</p>
+                <p className="text-sm font-bold text-red-800">{formatCurrency(stats.monthlyFleetCost)} TL</p>
+              </div>
+              <div className="p-3 bg-orange-50 rounded-lg">
+                <p className="text-[10px] font-medium text-orange-700 mb-0.5">Genel Gider</p>
+                <p className="text-sm font-bold text-orange-800">{formatCurrency(stats.monthlyOverhead)} TL</p>
+              </div>
+              <div className={`p-3 rounded-lg ${stats.monthlyNetProfit >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
+                <p className={`text-[10px] font-medium mb-0.5 ${stats.monthlyNetProfit >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                  Net {stats.monthlyNetProfit >= 0 ? 'Kar' : 'Zarar'}
+                </p>
+                <p className={`text-sm font-bold ${stats.monthlyNetProfit >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>
+                  {stats.monthlyNetProfit >= 0 ? '+' : ''}{formatCurrency(stats.monthlyNetProfit)} TL
+                </p>
+              </div>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
               <div className="flex items-center justify-between mb-4">

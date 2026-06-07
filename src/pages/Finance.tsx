@@ -15,6 +15,7 @@ import CurrencyInput from '../components/ui/CurrencyInput';
 import Pagination from '../components/ui/Pagination';
 import AddPaymentModal from '../components/finance/AddPaymentModal';
 import InvoicesTab from '../components/finance/InvoicesTab';
+import CompanyExpenses from '../components/finance/CompanyExpenses';
 
 interface TransactionFormData {
   type: 'income' | 'expense';
@@ -65,7 +66,7 @@ export default function Finance() {
   const [filterType, setFilterType] = useState<'all' | 'income' | 'expense'>('all');
   const [filterCategory, setFilterCategory] = useState('');
   const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'transactions' | 'payments' | 'invoices'>('transactions');
+  const [activeTab, setActiveTab] = useState<'transactions' | 'payments' | 'invoices' | 'expenses'>('transactions');
 
   const pagination = usePagination(20);
 
@@ -380,9 +381,19 @@ export default function Finance() {
         >
           Faturalar
         </button>
+        <button
+          onClick={() => setActiveTab('expenses')}
+          className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+            activeTab === 'expenses' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          Sirket Giderleri
+        </button>
       </div>
 
       {activeTab === 'invoices' && <InvoicesTab />}
+
+      {activeTab === 'expenses' && <CompanyExpenses />}
 
       {activeTab === 'transactions' && (<>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-6">

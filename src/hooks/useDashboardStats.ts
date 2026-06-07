@@ -50,6 +50,9 @@ interface DashboardStats {
   monthlyLoanPayment: number;
   occupancyRate: number;
   pendingRequests: PendingRequests;
+  monthlyOverhead: number;
+  monthlyFleetCost: number;
+  monthlyNetProfit: number;
 }
 
 const initialStats: DashboardStats = {
@@ -66,6 +69,9 @@ const initialStats: DashboardStats = {
   monthlyLoanPayment: 0,
   occupancyRate: 0,
   pendingRequests: { extensions: 0, kmReports: 0, receipts: 0, maintenance: 0, damages: 0, driverSubmissions: 0, total: 0 },
+  monthlyOverhead: 0,
+  monthlyFleetCost: 0,
+  monthlyNetProfit: 0,
 };
 
 function getDaysUntil(dateStr: string | null): number {
@@ -115,6 +121,7 @@ export function useDashboardStats() {
         customerRequestsRes,
         damageReportsRes,
         driverSubmissionsRes,
+        companyExpensesRes,
       ] = await Promise.all([
         supabase.from('vehicles').select('*').eq('company_id', effectiveCompanyId).is('deleted_at', null),
         supabase.from('rentals').select('*, customers(company_title)').eq('company_id', effectiveCompanyId).eq('status', 'active'),
@@ -126,6 +133,7 @@ export function useDashboardStats() {
         supabase.from('customer_requests').select('request_type').eq('company_id', effectiveCompanyId).eq('status', 'pending'),
         supabase.from('damage_reports').select('id').eq('company_id', effectiveCompanyId).in('status', ['pending', 'in_progress']),
         supabase.from('driver_submissions').select('id').eq('company_id', effectiveCompanyId).eq('status', 'approved_pending_lessor'),
+        supabase.from('company_expenses').select('amount').eq('company_id', effectiveCompanyId).gte('due_date', `${currentMonth}-01`).lte('due_date', `${currentMonth}-31`),
       ]);
 
       const vehicles: Vehicle[] = vehiclesRes.data || [];
@@ -300,6 +308,12 @@ export function useDashboardStats() {
 
       const occupancyRate = totalVehicles > 0 ? Math.round((activeRentals / totalVehicles) * 100) : 0;
 
+      const monthlyOverhead = (companyExpensesRes.data || []).reduce((sum: number, e: any) => sum + (e.amount || 0), 0);
+      const monthlyFleetCost = currentMonthTransactions
+        .filter(t => t.type === 'expense')
+        .reduce((sum, t) => sum + t.amount, 0);
+      const monthlyNetProfit = monthlyRevenue - (monthlyFleetCost + monthlyOverhead);
+
       setStats({
         totalVehicles,
         activeRentals,
@@ -314,6 +328,9 @@ export function useDashboardStats() {
         monthlyLoanPayment,
         occupancyRate,
         pendingRequests,
+        monthlyOverhead,
+        monthlyFleetCost,
+        monthlyNetProfit,
       });
     } catch (err) {
       console.error('Error loading dashboard stats:', err);

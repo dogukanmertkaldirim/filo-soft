@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { TrendingUp, TrendingDown, Percent, Printer, Car, Download, BarChart3, Users } from 'lucide-react';
+import { TrendingUp, TrendingDown, Percent, Printer, Car, Download, BarChart3, Users, PieChart as PieChartIcon } from 'lucide-react';
 import {
   ComposedChart,
   Bar,
@@ -20,6 +20,7 @@ import Button from '../components/ui/Button';
 import { useAuth } from '../context/AuthContext';
 import { exportToExcel } from '../utils/exportExcel';
 import CustomerReports from '../components/reports/CustomerReports';
+import ProfitLossAnalytics from '../components/reports/ProfitLossAnalytics';
 
 interface MonthlyData {
   month: string;
@@ -59,7 +60,7 @@ const EXPENSE_CATEGORY_LABELS: Record<string, string> = {
 export default function Reports() {
   const { effectiveCompanyId: companyId } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'financial' | 'customer'>('financial');
+  const [activeTab, setActiveTab] = useState<'financial' | 'customer' | 'pnl'>('financial');
 
   const now = new Date();
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
@@ -403,6 +404,17 @@ export default function Reports() {
                 Mali Raporlar
               </button>
               <button
+                onClick={() => setActiveTab('pnl')}
+                className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-colors ${
+                  activeTab === 'pnl'
+                    ? 'bg-teal-600 text-white'
+                    : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <PieChartIcon className="h-5 w-5" />
+                Kar-Zarar Analizi
+              </button>
+              <button
                 onClick={() => setActiveTab('customer')}
                 className={`flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-colors ${
                   activeTab === 'customer'
@@ -411,13 +423,15 @@ export default function Reports() {
                 }`}
               >
                 <Users className="h-5 w-5" />
-                Müşteri Raporları
+                Musteri Raporlari
               </button>
             </div>
           </div>
         </div>
 
-        {activeTab === 'customer' ? (
+        {activeTab === 'pnl' ? (
+          <ProfitLossAnalytics />
+        ) : activeTab === 'customer' ? (
           <CustomerReports companyId={companyId} />
         ) : (
           <>
