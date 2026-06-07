@@ -853,6 +853,7 @@ export interface AppUser {
   linked_customer_id: string | null;
   driver_license_no: string | null;
   driver_license_expiry: string | null;
+  driver_type: string | null;
   is_active: boolean;
   created_at: string;
 }

@@ -29,6 +29,7 @@ const CustomerPortal = lazy(() => import('./pages/CustomerPortal'));
 const ServiceAppointments = lazy(() => import('./pages/ServiceAppointments'));
 const CustomerRequests = lazy(() => import('./pages/CustomerRequests'));
 const DriverPortal = lazy(() => import('./pages/DriverPortal'));
+const EmployeeDriverPortal = lazy(() => import('./pages/EmployeeDriverPortal'));
 const HgsAutomation = lazy(() => import('./pages/HgsAutomation'));
 const KabisBildirimleri = lazy(() => import('./pages/KabisBildirimleri'));
 
@@ -54,7 +55,7 @@ function SuperAdminPageLoader() {
 }
 
 function AppRoutes() {
-  const { isAuthenticated, loading, isAdmin, isCustomer, isDriver, isSuperAdmin } = useAuth();
+  const { isAuthenticated, loading, isAdmin, isCustomer, isDriver, isSuperAdmin, user } = useAuth();
 
   if (loading) {
     return (
@@ -72,11 +73,21 @@ function AppRoutes() {
   }
 
   if (isDriver) {
+    const isEmployee = user?.driver_type === 'employee';
     return (
       <Suspense fallback={<PageLoader />}>
         <Routes>
-          <Route path="/driver" element={<DriverPortal />} />
-          <Route path="*" element={<Navigate to="/driver" replace />} />
+          {isEmployee ? (
+            <>
+              <Route path="/employee-ops" element={<EmployeeDriverPortal />} />
+              <Route path="*" element={<Navigate to="/employee-ops" replace />} />
+            </>
+          ) : (
+            <>
+              <Route path="/driver" element={<DriverPortal />} />
+              <Route path="*" element={<Navigate to="/driver" replace />} />
+            </>
+          )}
         </Routes>
       </Suspense>
     );

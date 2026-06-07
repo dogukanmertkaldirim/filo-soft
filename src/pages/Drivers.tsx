@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Plus, Edit2, Trash2, Search, Users, Phone, Upload, Loader2, X, FileText, ExternalLink, MapPin, ImageIcon, Camera } from 'lucide-react';
+import { Plus, CreditCard as Edit2, Trash2, Search, Users, Phone, Upload, Loader2, X, FileText, ExternalLink, MapPin, Image as ImageIcon, Camera, ClipboardList } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { logActivity } from '../utils/auditLog';
@@ -209,6 +209,11 @@ export default function Drivers() {
   const [filterRegion, setFilterRegion] = useState('');
   const [photoUploading, setPhotoUploading] = useState(false);
   const [licenseUploading, setLicenseUploading] = useState(false);
+  const [showDispatch, setShowDispatch] = useState(false);
+  const [dispatchSaving, setDispatchSaving] = useState(false);
+  const [employeeDrivers, setEmployeeDrivers] = useState<{ id: string; full_name: string }[]>([]);
+  const [vehicles, setVehicles] = useState<{ id: string; plate: string; brand: string; model: string }[]>([]);
+  const [dispatchForm, setDispatchForm] = useState({ driver_id: '', vehicle_id: '', task_type: '', description: '', priority: 'normal' });
 
   useEffect(() => {
     if (companyId) loadDrivers();
@@ -225,6 +230,36 @@ export default function Drivers() {
       .order('name');
     setDrivers(data || []);
     setLoading(false);
+  }
+
+  async function openDispatchModal() {
+    setShowDispatch(true);
+    const [driversRes, vehiclesRes] = await Promise.all([
+      supabase.from('app_users').select('id, full_name').eq('company_id', companyId).eq('role', 'driver').eq('driver_type', 'employee').eq('is_active', true),
+      supabase.from('vehicles').select('id, plate, brand, model').eq('company_id', companyId).is('deleted_at', null),
+    ]);
+    setEmployeeDrivers(driversRes.data || []);
+    setVehicles(vehiclesRes.data || []);
+  }
+
+  async function handleDispatchSave() {
+    if (!dispatchForm.driver_id || !dispatchForm.task_type) {
+      alert('Sofor ve gorev turu zorunludur');
+      return;
+    }
+    setDispatchSaving(true);
+    await supabase.from('operational_tasks').insert({
+      company_id: companyId,
+      assigned_driver_id: dispatchForm.driver_id,
+      vehicle_id: dispatchForm.vehicle_id || null,
+      task_type: dispatchForm.task_type,
+      description: dispatchForm.description || null,
+      priority: dispatchForm.priority,
+      status: 'pending',
+    });
+    setDispatchSaving(false);
+    setShowDispatch(false);
+    setDispatchForm({ driver_id: '', vehicle_id: '', task_type: '', description: '', priority: 'normal' });
   }
 
   function openAddForm() {
@@ -337,10 +372,16 @@ export default function Drivers() {
             <p className="text-sm text-slate-500">Surucu kadrosu yonetimi</p>
           </div>
         </div>
-        <Button onClick={openAddForm}>
-          <Plus className="h-4 w-4 mr-2" />
-          Yeni Sofor
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={openDispatchModal}>
+            <ClipboardList className="h-4 w-4 mr-2" />
+            Gorev Ata
+          </Button>
+          <Button onClick={openAddForm}>
+            <Plus className="h-4 w-4 mr-2" />
+            Yeni Sofor
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
@@ -590,6 +631,64 @@ export default function Drivers() {
             >
               {saving ? 'Kaydediliyor...' : editingDriver ? 'Guncelle' : 'Kaydet'}
             </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Dispatch Task Modal */}
+      <Modal isOpen={showDispatch} onClose={() => setShowDispatch(false)} title="Saha Gorevi Ata">
+        <div className="space-y-4">
+          <Select
+            label="Saha Soforu *"
+            value={dispatchForm.driver_id}
+            onChange={(e) => setDispatchForm({ ...dispatchForm, driver_id: e.target.value })}
+            options={[
+              { value: '', label: 'Sofor secin...' },
+              ...employeeDrivers.map(d => ({ value: d.id, label: d.full_name }))
+            ]}
+          />
+          <Select
+            label="Gorev Turu *"
+            value={dispatchForm.task_type}
+            onChange={(e) => setDispatchForm({ ...dispatchForm, task_type: e.target.value })}
+            options={[
+              { value: '', label: 'Gorev secin...' },
+              { value: 'teslim_alma', label: 'Teslim Alma' },
+              { value: 'lastik_degisimi', label: 'Lastik Degisimi' },
+              { value: 'muayene', label: 'Muayeneye Gotur' },
+              { value: 'lastik_teslimat', label: 'Lastikten Musteriye Teslimat' },
+              { value: 'yeni_lastik', label: 'Yeni Lastik Alimi' },
+              { value: 'tuvturk', label: 'TUVTURK Randevusu' },
+              { value: 'diger', label: 'Diger' },
+            ]}
+          />
+          <Select
+            label="Arac (Opsiyonel)"
+            value={dispatchForm.vehicle_id}
+            onChange={(e) => setDispatchForm({ ...dispatchForm, vehicle_id: e.target.value })}
+            options={[
+              { value: '', label: 'Arac secin...' },
+              ...vehicles.map(v => ({ value: v.id, label: `${v.plate} - ${v.brand} ${v.model}` }))
+            ]}
+          />
+          <Select
+            label="Oncelik"
+            value={dispatchForm.priority}
+            onChange={(e) => setDispatchForm({ ...dispatchForm, priority: e.target.value })}
+            options={[
+              { value: 'normal', label: 'Normal' },
+              { value: 'urgent', label: 'Acil' },
+            ]}
+          />
+          <Input
+            label="Aciklama / Talimat"
+            value={dispatchForm.description}
+            onChange={(e) => setDispatchForm({ ...dispatchForm, description: e.target.value })}
+            placeholder="Gorev detaylari..."
+          />
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+            <Button variant="secondary" onClick={() => setShowDispatch(false)}>Iptal</Button>
+            <Button onClick={handleDispatchSave} loading={dispatchSaving}>Gorevi Gonder</Button>
           </div>
         </div>
       </Modal>
