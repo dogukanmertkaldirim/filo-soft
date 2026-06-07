@@ -56,6 +56,9 @@ interface UserFormData {
   isg_training_date: string;
   driver_license_no: string;
   driver_license_expiry: string;
+  nufus_kayit_url: string;
+  ikametgah_url: string;
+  isg_documents_url: string;
 }
 
 const emptyForm: UserFormData = {
@@ -84,6 +87,9 @@ const emptyForm: UserFormData = {
   isg_training_date: '',
   driver_license_no: '',
   driver_license_expiry: '',
+  nufus_kayit_url: '',
+  ikametgah_url: '',
+  isg_documents_url: '',
 };
 
 const systemRoleOptions: { value: SystemRoleBranch; label: string; description: string; icon: React.ElementType; color: string }[] = [
@@ -439,6 +445,9 @@ export default function UserManagement() {
       if (formData.emergency_contact_phone) updatePayload.emergency_contact_phone = formData.emergency_contact_phone;
       if (formData.home_address) updatePayload.home_address = formData.home_address;
       if (formData.isg_training_date) updatePayload.isg_training_date = formData.isg_training_date;
+      if (formData.nufus_kayit_url) updatePayload.nufus_kayit_url = formData.nufus_kayit_url;
+      if (formData.ikametgah_url) updatePayload.ikametgah_url = formData.ikametgah_url;
+      if (formData.isg_documents_url) updatePayload.isg_documents_url = formData.isg_documents_url;
 
       if (Object.keys(updatePayload).length > 0) {
         await supabase.from('app_users').update(updatePayload).eq('id', result.user_id);
@@ -893,6 +902,21 @@ export default function UserManagement() {
                 value={formData.sabika_kaydi_url}
                 onUpload={(url) => setFormData({ ...formData, sabika_kaydi_url: url })}
               />
+              <FileDropzone
+                label="Nufus Kayit Ornegi Yukle"
+                value={formData.nufus_kayit_url}
+                onUpload={(url) => setFormData({ ...formData, nufus_kayit_url: url })}
+              />
+              <FileDropzone
+                label="Ikametgah Belgesi Yukle"
+                value={formData.ikametgah_url}
+                onUpload={(url) => setFormData({ ...formData, ikametgah_url: url })}
+              />
+              <FileDropzone
+                label="ISG (Is Sagligi ve Guvenligi) Belgesi Yukle"
+                value={formData.isg_documents_url}
+                onUpload={(url) => setFormData({ ...formData, isg_documents_url: url })}
+              />
             </div>
           )}
 
@@ -1227,6 +1251,9 @@ function DossierView({ user, getLinkedCustomerName, getBranchLabel, getBranchCol
         <DocLink label="Ehliyet Gorseli" url={u.ehliyet_doc_url} />
         <DocLink label="SGK Ise Giris Bildirgesi" url={u.sgk_doc_url} />
         <DocLink label="Adli Sicil Kaydi" url={u.sabika_kaydi_url} />
+        <DocLink label="Nufus Kayit Ornegi" url={u.nufus_kayit_url} />
+        <DocLink label="Ikametgah Belgesi" url={u.ikametgah_url} />
+        <DocLink label="ISG Evraki" url={u.isg_documents_url} />
       </div>
     </div>
   );
