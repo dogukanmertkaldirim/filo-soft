@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   User, LogOut, Clock, MapPin, CheckCircle, Truck, Wrench,
   ClipboardCheck, ArrowRight, Fuel, Droplets, AlertTriangle,
-  PenTool, ChevronRight, Car, Gauge
+  PenTool, ChevronRight, Car, Gauge, Upload, X, Image as ImageIcon
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -33,11 +33,12 @@ const TASK_TYPE_META: Record<string, { label: string; color: string; icon: typeo
   'diger': { label: 'Diger', color: 'bg-slate-100 text-slate-700 border-slate-200', icon: Truck },
 };
 
-const STATUS_FLOW = ['pending', 'en_route', 'in_progress', 'completed'] as const;
+const STATUS_FLOW = ['pending', 'en_route', 'in_progress', 'pending_sync'] as const;
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Bekliyor',
   en_route: 'Yolda',
   in_progress: 'Islem Yapiliyor',
+  pending_sync: 'Ofis Onayinda',
   completed: 'Tamamlandi',
 };
 
@@ -47,6 +48,7 @@ export default function EmployeeDriverPortal() {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
   const [showHandover, setShowHandover] = useState(false);
+  const [showGenericUpload, setShowGenericUpload] = useState(false);
   const [activeTask, setActiveTask] = useState<OperationalTask | null>(null);
   const [tab, setTab] = useState<'active' | 'completed'>('active');
 
@@ -72,27 +74,25 @@ export default function EmployeeDriverPortal() {
 
     const nextStatus = STATUS_FLOW[idx + 1];
 
-    if (nextStatus === 'completed' && task.task_type === 'teslim_alma') {
+    // For teslim_alma, launch handover wizard
+    if (nextStatus === 'pending_sync' && task.task_type === 'teslim_alma') {
       setActiveTask(task);
       setShowHandover(true);
+      return;
+    }
+
+    // For other tasks at completion stage, launch generic file upload
+    if (nextStatus === 'pending_sync') {
+      setActiveTask(task);
+      setShowGenericUpload(true);
       return;
     }
 
     setUpdating(task.id);
     const updateData: Record<string, unknown> = { status: nextStatus };
     if (nextStatus === 'en_route') updateData.started_at = new Date().toISOString();
-    if (nextStatus === 'completed') updateData.completed_at = new Date().toISOString();
 
     await supabase.from('operational_tasks').update(updateData).eq('id', task.id);
-
-    if (nextStatus === 'completed') {
-      await supabase.from('activity_logs').insert({
-        company_id: user?.company_id,
-        action: 'task_completed',
-        details: `${user?.full_name}, ${task.vehicles?.plate} plakali arac icin "${getTaskLabel(task.task_type)}" gorevini tamamladi.`,
-      });
-    }
-
     await loadTasks();
     setUpdating(null);
   }
@@ -119,7 +119,8 @@ export default function EmployeeDriverPortal() {
     }
   }
 
-  const activeTasks = tasks.filter(t => t.status !== 'completed');
+  const activeTasks = tasks.filter(t => t.status !== 'completed' && t.status !== 'pending_sync');
+  const pendingSyncTasks = tasks.filter(t => t.status === 'pending_sync');
   const completedTasks = tasks.filter(t => t.status === 'completed');
 
   if (loading) {
@@ -251,6 +252,27 @@ export default function EmployeeDriverPortal() {
           </>
         )}
 
+        {/* Pending Sync Notice */}
+        {tab === 'active' && pendingSyncTasks.length > 0 && (
+          <div className="space-y-3 mt-4">
+            <p className="text-xs font-semibold text-amber-700 uppercase tracking-wider">Ofis Onayinda ({pendingSyncTasks.length})</p>
+            {pendingSyncTasks.map(task => {
+              const meta = TASK_TYPE_META[task.task_type] || TASK_TYPE_META['diger'];
+              return (
+                <div key={task.id} className="bg-amber-50 rounded-xl border border-amber-200 p-4">
+                  <div className="flex items-center gap-3">
+                    <Clock className="h-5 w-5 text-amber-500 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-slate-700">{meta.label}</p>
+                      <p className="text-xs text-slate-500">{task.vehicles?.plate} - Ofis onay bekliyor</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {tab === 'completed' && (
           <div className="space-y-3">
             {completedTasks.length === 0 ? (
@@ -281,13 +303,27 @@ export default function EmployeeDriverPortal() {
       </main>
 
       {/* Handover Wizard */}
-      {activeTask && (
+      {activeTask && showHandover && (
         <HandoverWizard
           isOpen={showHandover}
           task={activeTask}
           onClose={() => { setShowHandover(false); setActiveTask(null); }}
           onComplete={async () => {
             setShowHandover(false);
+            setActiveTask(null);
+            await loadTasks();
+          }}
+        />
+      )}
+
+      {/* Generic Upload Modal (for non-teslim_alma tasks) */}
+      {activeTask && showGenericUpload && (
+        <GenericTaskUpload
+          isOpen={showGenericUpload}
+          task={activeTask}
+          onClose={() => { setShowGenericUpload(false); setActiveTask(null); }}
+          onComplete={async () => {
+            setShowGenericUpload(false);
             setActiveTask(null);
             await loadTasks();
           }}
@@ -319,8 +355,11 @@ function HandoverWizard({ isOpen, task, onClose, onComplete }: HandoverWizardPro
   const [cleanliness, setCleanliness] = useState<string>('');
   const [damageSchema, setDamageSchema] = useState<Record<string, string>>({});
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
+  const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const steps = ['KM & Yakit', 'Temizlik & Hasar', 'Dijital Imza'];
+  const steps = ['KM & Yakit', 'Temizlik & Hasar', 'Foto/Video & Imza'];
 
   function canNext(): boolean {
     switch (step) {
@@ -329,6 +368,23 @@ function HandoverWizard({ isOpen, task, onClose, onComplete }: HandoverWizardPro
       case 2: return !!signatureDataUrl;
       default: return false;
     }
+  }
+
+  async function handleMultiFileUpload(files: FileList) {
+    setUploading(true);
+    const urls: string[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const ext = file.name.split('.').pop();
+      const path = `task-files/${user?.company_id}/${task.id}/${Date.now()}_${i}.${ext}`;
+      const { error } = await supabase.storage.from('documents').upload(path, file, { contentType: file.type });
+      if (!error) {
+        const { data } = supabase.storage.from('documents').getPublicUrl(path);
+        urls.push(data.publicUrl);
+      }
+    }
+    setUploadedFiles(prev => [...prev, ...urls]);
+    setUploading(false);
   }
 
   async function handleSubmit() {
@@ -346,10 +402,10 @@ function HandoverWizard({ isOpen, task, onClose, onComplete }: HandoverWizardPro
         sigUrl = urlData.publicUrl;
       }
     } catch {
-      // Signature upload failed, continue with data URL reference
+      // continue
     }
 
-    const handoverData = {
+    const submittedData = {
       km: parseInt(km),
       fuel_level: fuelLevel,
       cleanliness,
@@ -358,31 +414,14 @@ function HandoverWizard({ isOpen, task, onClose, onComplete }: HandoverWizardPro
       submitted_by: user?.full_name,
     };
 
-    // Update task
+    // Set to pending_sync - NO direct vehicle update
     await supabase.from('operational_tasks').update({
-      status: 'completed',
-      completed_at: new Date().toISOString(),
-      handover_data: handoverData,
+      status: 'pending_sync',
+      handover_data: submittedData,
+      submitted_data: submittedData,
       signature_url: sigUrl,
+      file_urls: uploadedFiles,
     }).eq('id', task.id);
-
-    // Update vehicle with fresh data
-    if (task.vehicle_id) {
-      const vehicleUpdate: Record<string, unknown> = {
-        current_km: parseInt(km),
-      };
-      if (Object.keys(damageSchema).length > 0) {
-        vehicleUpdate.damage_schema = damageSchema;
-      }
-      await supabase.from('vehicles').update(vehicleUpdate).eq('id', task.vehicle_id);
-    }
-
-    // Activity log
-    await supabase.from('activity_logs').insert({
-      company_id: user?.company_id,
-      action: 'vehicle_handover',
-      details: `${user?.full_name}, ${task.vehicles?.plate} plakali araci kiracidan teslim aldi. KM: ${km}, Yakit: ${fuelLevel}`,
-    });
 
     setSaving(false);
     onComplete();
@@ -512,19 +551,71 @@ function HandoverWizard({ isOpen, task, onClose, onComplete }: HandoverWizardPro
           </div>
         )}
 
-        {/* Step 2: Signature */}
+        {/* Step 2: Files & Signature */}
         {step === 2 && (
           <div className="space-y-4">
-            <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
-              <p className="text-xs text-blue-700">
-                <PenTool className="inline h-3.5 w-3.5 mr-1" />
-                Teslim eden yetkilinin parmagi ile asagidaki alana imza atmasini saglayiniz.
-              </p>
+            {/* Multi-file upload */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                <Upload className="inline h-4 w-4 mr-1" />
+                Foto / Video / Belge Yukle
+              </label>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/*,video/*,application/pdf"
+                onChange={(e) => { if (e.target.files?.length) handleMultiFileUpload(e.target.files); }}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="w-full flex items-center justify-center gap-2 p-3 border-2 border-dashed border-slate-300 rounded-xl hover:border-teal-400 hover:bg-teal-50/50 transition-all disabled:opacity-50"
+              >
+                {uploading ? (
+                  <div className="h-5 w-5 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Upload className="h-5 w-5 text-slate-400" />
+                )}
+                <span className="text-sm text-slate-600">{uploading ? 'Yukleniyor...' : 'Dosya Sec (Coklu)'}</span>
+              </button>
+              {uploadedFiles.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {uploadedFiles.map((url, i) => (
+                    <div key={i} className="relative group">
+                      <div className="w-14 h-14 rounded-lg border border-slate-200 overflow-hidden bg-slate-50 flex items-center justify-center">
+                        {url.match(/\.(jpg|jpeg|png|webp|heic)/i) ? (
+                          <img src={url} className="w-full h-full object-cover" />
+                        ) : (
+                          <ImageIcon className="h-5 w-5 text-slate-400" />
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setUploadedFiles(prev => prev.filter((_, idx) => idx !== i))}
+                        className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            <SignaturePad
-              onSignature={(dataUrl) => setSignatureDataUrl(dataUrl)}
-              signatureDataUrl={signatureDataUrl}
-            />
+
+            <div className="border-t border-slate-200 pt-4">
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl mb-3">
+                <p className="text-xs text-blue-700">
+                  <PenTool className="inline h-3.5 w-3.5 mr-1" />
+                  Teslim eden yetkilinin parmagi ile asagidaki alana imza atmasini saglayiniz.
+                </p>
+              </div>
+              <SignaturePad
+                onSignature={(dataUrl) => setSignatureDataUrl(dataUrl)}
+                signatureDataUrl={signatureDataUrl}
+              />
+            </div>
           </div>
         )}
 
@@ -661,5 +752,157 @@ function SignaturePad({ onSignature, signatureDataUrl }: SignaturePadProps) {
         </button>
       )}
     </div>
+  );
+}
+
+// ==========================================
+// GENERIC TASK UPLOAD COMPONENT
+// ==========================================
+
+interface GenericTaskUploadProps {
+  isOpen: boolean;
+  task: OperationalTask;
+  onClose: () => void;
+  onComplete: () => void;
+}
+
+function GenericTaskUpload({ isOpen, task, onClose, onComplete }: GenericTaskUploadProps) {
+  const { user } = useAuth();
+  const [files, setFiles] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [inspectionDate, setInspectionDate] = useState('');
+  const [tireInfo, setTireInfo] = useState({ brand: '', size: '', type: '' });
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  async function handleFiles(fileList: FileList) {
+    setUploading(true);
+    const urls: string[] = [];
+    for (let i = 0; i < fileList.length; i++) {
+      const file = fileList[i];
+      const ext = file.name.split('.').pop();
+      const path = `task-files/${user?.company_id}/${task.id}/${Date.now()}_${i}.${ext}`;
+      const { error } = await supabase.storage.from('documents').upload(path, file, { contentType: file.type });
+      if (!error) {
+        const { data } = supabase.storage.from('documents').getPublicUrl(path);
+        urls.push(data.publicUrl);
+      }
+    }
+    setFiles(prev => [...prev, ...urls]);
+    setUploading(false);
+  }
+
+  async function handleSubmit() {
+    setSaving(true);
+
+    const submittedData: Record<string, unknown> = {
+      notes,
+      submitted_at: new Date().toISOString(),
+      submitted_by: user?.full_name,
+    };
+
+    if (task.task_type === 'tuvturk' || task.task_type === 'muayene') {
+      submittedData.inspection_date = inspectionDate || null;
+    }
+    if (task.task_type === 'lastik_degisimi' || task.task_type === 'yeni_lastik') {
+      submittedData.tire_info = tireInfo;
+    }
+
+    await supabase.from('operational_tasks').update({
+      status: 'pending_sync',
+      submitted_data: submittedData,
+      file_urls: files,
+    }).eq('id', task.id);
+
+    setSaving(false);
+    onComplete();
+  }
+
+  const meta = TASK_TYPE_META[task.task_type] || TASK_TYPE_META['diger'];
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={`Gorev Tamamla: ${meta.label}`}>
+      <div className="space-y-4">
+        <div className="flex items-center gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+          <Car className="h-5 w-5 text-slate-500" />
+          <div>
+            <p className="text-sm font-bold text-slate-900">{task.vehicles?.plate}</p>
+            <p className="text-xs text-slate-500">{task.vehicles?.brand} {task.vehicles?.model}</p>
+          </div>
+        </div>
+
+        {(task.task_type === 'tuvturk' || task.task_type === 'muayene') && (
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Yeni Muayene Tarihi</label>
+            <input
+              type="date"
+              value={inspectionDate}
+              onChange={(e) => setInspectionDate(e.target.value)}
+              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+            />
+          </div>
+        )}
+
+        {(task.task_type === 'lastik_degisimi' || task.task_type === 'yeni_lastik') && (
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Marka</label>
+              <input value={tireInfo.brand} onChange={(e) => setTireInfo({ ...tireInfo, brand: e.target.value })} placeholder="Michelin" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-teal-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Ebat</label>
+              <input value={tireInfo.size} onChange={(e) => setTireInfo({ ...tireInfo, size: e.target.value })} placeholder="205/55R16" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-teal-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Tip</label>
+              <select value={tireInfo.type} onChange={(e) => setTireInfo({ ...tireInfo, type: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-teal-500">
+                <option value="">Secin</option>
+                <option value="summer">Yaz</option>
+                <option value="winter">Kis</option>
+                <option value="all_season">4 Mevsim</option>
+              </select>
+            </div>
+          </div>
+        )}
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">Notlar</label>
+          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Islem hakkinda ek bilgi..." rows={2} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 resize-none" />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">
+            <Upload className="inline h-4 w-4 mr-1" />
+            Dosya Yukle (Foto/Video/PDF)
+          </label>
+          <input ref={inputRef} type="file" multiple accept="image/*,video/*,application/pdf" onChange={(e) => { if (e.target.files?.length) handleFiles(e.target.files); }} className="hidden" />
+          <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading} className="w-full flex items-center justify-center gap-2 p-3 border-2 border-dashed border-slate-300 rounded-xl hover:border-teal-400 hover:bg-teal-50/50 transition-all disabled:opacity-50">
+            {uploading ? <div className="h-5 w-5 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" /> : <Upload className="h-5 w-5 text-slate-400" />}
+            <span className="text-sm text-slate-600">{uploading ? 'Yukleniyor...' : 'Dosya Sec (Coklu)'}</span>
+          </button>
+          {files.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {files.map((url, i) => (
+                <div key={i} className="relative group">
+                  <div className="w-14 h-14 rounded-lg border border-slate-200 overflow-hidden bg-slate-50 flex items-center justify-center">
+                    {url.match(/\.(jpg|jpeg|png|webp|heic)/i) ? <img src={url} className="w-full h-full object-cover" /> : <ImageIcon className="h-5 w-5 text-slate-400" />}
+                  </div>
+                  <button onClick={() => setFiles(prev => prev.filter((_, idx) => idx !== i))} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-slate-400 mt-1">{files.length} dosya yuklendi</p>
+        </div>
+
+        <div className="flex gap-3 pt-2 border-t border-slate-200">
+          <Button variant="secondary" onClick={onClose} className="flex-1">Iptal</Button>
+          <Button onClick={handleSubmit} loading={saving} className="flex-1">Ofise Gonder</Button>
+        </div>
+      </div>
+    </Modal>
   );
 }

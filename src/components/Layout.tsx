@@ -33,6 +33,7 @@ import {
   Crown,
   CircleUser,
   UserPlus,
+  ClipboardCheck,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -122,6 +123,7 @@ const navGroups: NavGroup[] = [
       { path: '/notes', label: 'Notlar', icon: StickyNote },
       { path: '/integrations', label: 'Entegrasyonlar', icon: Plug },
       { path: '/staff', label: 'Calisan Yonetimi', icon: UserPlus },
+      { path: '/task-approvals', label: 'Gorev Onaylari', icon: ClipboardCheck },
       { path: '/settings', label: 'Ayarlar', icon: Settings },
     ],
   },
