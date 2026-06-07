@@ -32,7 +32,6 @@ import {
   FolderCog,
   Crown,
   CircleUser,
-  UserPlus,
   ClipboardCheck,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
@@ -122,7 +121,6 @@ const navGroups: NavGroup[] = [
       { path: '/calendar', label: 'Takvim', icon: Calendar },
       { path: '/notes', label: 'Notlar', icon: StickyNote },
       { path: '/integrations', label: 'Entegrasyonlar', icon: Plug },
-      { path: '/staff', label: 'Calisan Yonetimi', icon: UserPlus },
       { path: '/task-approvals', label: 'Gorev Onaylari', icon: ClipboardCheck },
       { path: '/settings', label: 'Ayarlar', icon: Settings },
     ],

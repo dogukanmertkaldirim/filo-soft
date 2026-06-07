@@ -32,7 +32,6 @@ const DriverPortal = lazy(() => import('./pages/DriverPortal'));
 const EmployeeDriverPortal = lazy(() => import('./pages/EmployeeDriverPortal'));
 const HgsAutomation = lazy(() => import('./pages/HgsAutomation'));
 const KabisBildirimleri = lazy(() => import('./pages/KabisBildirimleri'));
-const StaffManagement = lazy(() => import('./pages/StaffManagement'));
 const TaskApprovalPool = lazy(() => import('./pages/TaskApprovalPool'));
 
 const SuperAdminDashboard = lazy(() => import('./pages/admin/SuperAdminDashboard'));
@@ -165,7 +164,6 @@ function AppRoutes() {
           <Route path="/audit-logs" element={isAdmin ? <AuditLogs /> : <Navigate to="/" replace />} />
           <Route path="/settings" element={isAdmin ? <Settings /> : <Navigate to="/" replace />} />
           <Route path="/integrations" element={isAdmin ? <Integrations /> : <Navigate to="/" replace />} />
-          <Route path="/staff" element={isAdmin ? <StaffManagement /> : <Navigate to="/" replace />} />
           <Route path="/task-approvals" element={isAdmin ? <TaskApprovalPool /> : <Navigate to="/" replace />} />
           <Route
             path="/modules"
