@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
-  Car, AlertTriangle, Fuel, Phone, MapPin, User, Clock, CheckCircle,
-  Gauge, Wrench, LogOut, Bell, Calendar
+  Car, AlertTriangle, Fuel, Phone, User, CheckCircle,
+  Gauge, Wrench, LogOut, Bell, Calendar, Camera, FileText,
+  Shield, ExternalLink, FolderOpen, UtensilsCrossed
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -34,19 +35,24 @@ export default function DriverPortal() {
   const [appointments, setAppointments] = useState<DriverAppointment[]>([]);
 
   const [showAccidentModal, setShowAccidentModal] = useState(false);
-  const [showFuelModal, setShowFuelModal] = useState(false);
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [showKmModal, setShowKmModal] = useState(false);
   const [showMalfunctionModal, setShowMalfunctionModal] = useState(false);
   const [showEmergencyModal, setShowEmergencyModal] = useState(false);
 
   const [accidentDescription, setAccidentDescription] = useState('');
   const [accidentLocation, setAccidentLocation] = useState('');
-  const [fuelAmount, setFuelAmount] = useState('');
-  const [fuelCost, setFuelCost] = useState('');
+  const [receiptCategory, setReceiptCategory] = useState<'fuel' | 'meal'>('fuel');
+  const [receiptAmount, setReceiptAmount] = useState('');
+  const [receiptLiters, setReceiptLiters] = useState('');
+  const [receiptImage, setReceiptImage] = useState<File | null>(null);
+  const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
   const [kmValue, setKmValue] = useState('');
   const [malfunctionDescription, setMalfunctionDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadDriverData();
@@ -56,7 +62,6 @@ export default function DriverPortal() {
     if (!user?.id) return;
     setLoading(true);
 
-    // Primary path: check customer_drivers table for direct vehicle assignment
     const { data: driverData } = await supabase
       .from('customer_drivers')
       .select(`
@@ -77,7 +82,6 @@ export default function DriverPortal() {
           customer_name: (driverData.tenant as any)?.full_name || null,
         });
       } else {
-        // Fallback: check vehicle_driver_assignments for an active assignment
         const { data: assignment } = await supabase
           .from('vehicle_driver_assignments')
           .select('vehicle_id, vehicles(*)')
@@ -95,7 +99,6 @@ export default function DriverPortal() {
         }
       }
 
-      // Load appointments assigned to this driver
       const { data: appts } = await supabase
         .from('service_appointments')
         .select('*, vehicles(plate, brand, model)')
@@ -128,6 +131,74 @@ export default function DriverPortal() {
     return !error;
   }
 
+  async function uploadReceiptImage(file: File): Promise<string | null> {
+    const ext = file.name.split('.').pop();
+    const fileName = `${user?.id}/${Date.now()}.${ext}`;
+
+    const { error } = await supabase.storage
+      .from('driver-documents')
+      .upload(fileName, file, { contentType: file.type });
+
+    if (error) return null;
+
+    const { data: urlData } = supabase.storage
+      .from('driver-documents')
+      .getPublicUrl(fileName);
+
+    return urlData.publicUrl;
+  }
+
+  function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setReceiptImage(file);
+    const reader = new FileReader();
+    reader.onloadend = () => setReceiptPreview(reader.result as string);
+    reader.readAsDataURL(file);
+  }
+
+  async function handleSubmitReceipt() {
+    if (!receiptAmount) {
+      alert('Lutfen tutar girin');
+      return;
+    }
+    setSubmitting(true);
+
+    let imageUrl: string | null = null;
+    if (receiptImage) {
+      imageUrl = await uploadReceiptImage(receiptImage);
+    }
+
+    const description = receiptCategory === 'fuel'
+      ? `Yakit alimi${receiptLiters ? ` - ${receiptLiters} Lt` : ''}`
+      : 'Yemek fisi';
+
+    const success = await submitToApprovalPipeline('expense_receipt', {
+      expense_type: receiptCategory,
+      amount: parseFloat(receiptAmount),
+      liters: receiptCategory === 'fuel' && receiptLiters ? parseFloat(receiptLiters) : null,
+      description,
+      image_url: imageUrl,
+      date: new Date().toISOString().split('T')[0],
+    });
+
+    if (success) {
+      setSuccessMessage(
+        receiptCategory === 'fuel'
+          ? 'Yakit fisi gonderildi. Firma yoneticinizin onayini bekliyor.'
+          : 'Yemek fisi gonderildi. Firma yoneticinizin onayini bekliyor.'
+      );
+      setReceiptAmount('');
+      setReceiptLiters('');
+      setReceiptImage(null);
+      setReceiptPreview(null);
+      setShowReceiptModal(false);
+    } else {
+      alert('Fis gonderilirken bir hata olustu');
+    }
+    setSubmitting(false);
+  }
+
   async function handleReportAccident() {
     if (!accidentDescription || !accidentLocation) {
       alert('Lutfen tum alanlari doldurun');
@@ -149,32 +220,6 @@ export default function DriverPortal() {
       setShowAccidentModal(false);
     } else {
       alert('Bildirim gonderilirken bir hata olustu');
-    }
-    setSubmitting(false);
-  }
-
-  async function handleSubmitFuel() {
-    if (!fuelAmount || !fuelCost) {
-      alert('Lutfen tum alanlari doldurun');
-      return;
-    }
-    setSubmitting(true);
-
-    const success = await submitToApprovalPipeline('expense_receipt', {
-      expense_type: 'fuel',
-      amount: parseFloat(fuelCost),
-      liters: parseFloat(fuelAmount),
-      description: `Yakit alimi - ${fuelAmount} Lt`,
-      date: new Date().toISOString().split('T')[0],
-    });
-
-    if (success) {
-      setSuccessMessage('Yakit fisi gonderildi. Firma yoneticinizin onayini bekliyor.');
-      setFuelAmount('');
-      setFuelCost('');
-      setShowFuelModal(false);
-    } else {
-      alert('Fis gonderilirken bir hata olustu');
     }
     setSubmitting(false);
   }
@@ -232,6 +277,10 @@ export default function DriverPortal() {
       </div>
     );
   }
+
+  const licenseUrl = (assignedVehicle as any)?.license_document_url;
+  const kaskoUrl = (assignedVehicle as any)?.kasko_policy_url;
+  const insuranceUrl = (assignedVehicle as any)?.traffic_insurance_policy_url;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -316,6 +365,104 @@ export default function DriverPortal() {
             <p className="text-sm text-slate-500">
               Henuz size atanmis bir arac bulunmuyor. Lutfen yoneticinizle iletisime gecin.
             </p>
+          </div>
+        )}
+
+        {/* Digital Glove Box */}
+        {assignedVehicle && (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="px-5 py-3.5 bg-gradient-to-r from-sky-50 to-blue-50 border-b border-sky-100">
+              <div className="flex items-center gap-2">
+                <FolderOpen className="h-5 w-5 text-sky-600" />
+                <h3 className="font-semibold text-slate-800">Dijital Torpido</h3>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">Arac belgelerinize aninda erisim</p>
+            </div>
+            <div className="p-4 space-y-2.5">
+              {licenseUrl ? (
+                <a
+                  href={licenseUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 p-3 bg-slate-50 hover:bg-sky-50 border border-slate-200 hover:border-sky-300 rounded-xl transition-all group"
+                >
+                  <div className="h-10 w-10 bg-sky-100 rounded-lg flex items-center justify-center group-hover:bg-sky-200 transition-colors">
+                    <FileText className="h-5 w-5 text-sky-700" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-slate-800">Ruhsat</p>
+                    <p className="text-xs text-slate-500">Arac Tescil Belgesi</p>
+                  </div>
+                  <ExternalLink className="h-4 w-4 text-slate-400 group-hover:text-sky-600 transition-colors" />
+                </a>
+              ) : (
+                <div className="flex items-center gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl opacity-60">
+                  <div className="h-10 w-10 bg-slate-100 rounded-lg flex items-center justify-center">
+                    <FileText className="h-5 w-5 text-slate-400" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-slate-500">Ruhsat</p>
+                    <p className="text-xs text-slate-400">Belge yuklenmedi</p>
+                  </div>
+                </div>
+              )}
+
+              {kaskoUrl ? (
+                <a
+                  href={kaskoUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 p-3 bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 rounded-xl transition-all group"
+                >
+                  <div className="h-10 w-10 bg-emerald-100 rounded-lg flex items-center justify-center group-hover:bg-emerald-200 transition-colors">
+                    <Shield className="h-5 w-5 text-emerald-700" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-slate-800">Kasko Policesi</p>
+                    <p className="text-xs text-slate-500">Kapsamli Sigorta</p>
+                  </div>
+                  <ExternalLink className="h-4 w-4 text-slate-400 group-hover:text-emerald-600 transition-colors" />
+                </a>
+              ) : (
+                <div className="flex items-center gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl opacity-60">
+                  <div className="h-10 w-10 bg-slate-100 rounded-lg flex items-center justify-center">
+                    <Shield className="h-5 w-5 text-slate-400" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-slate-500">Kasko Policesi</p>
+                    <p className="text-xs text-slate-400">Belge yuklenmedi</p>
+                  </div>
+                </div>
+              )}
+
+              {insuranceUrl ? (
+                <a
+                  href={insuranceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 p-3 bg-slate-50 hover:bg-amber-50 border border-slate-200 hover:border-amber-300 rounded-xl transition-all group"
+                >
+                  <div className="h-10 w-10 bg-amber-100 rounded-lg flex items-center justify-center group-hover:bg-amber-200 transition-colors">
+                    <Car className="h-5 w-5 text-amber-700" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-slate-800">Trafik Sigortasi</p>
+                    <p className="text-xs text-slate-500">Zorunlu Mali Sorumluluk</p>
+                  </div>
+                  <ExternalLink className="h-4 w-4 text-slate-400 group-hover:text-amber-600 transition-colors" />
+                </a>
+              ) : (
+                <div className="flex items-center gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl opacity-60">
+                  <div className="h-10 w-10 bg-slate-100 rounded-lg flex items-center justify-center">
+                    <Car className="h-5 w-5 text-slate-400" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-slate-500">Trafik Sigortasi</p>
+                    <p className="text-xs text-slate-400">Belge yuklenmedi</p>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -406,7 +553,7 @@ export default function DriverPortal() {
           </button>
 
           <button
-            onClick={() => setShowFuelModal(true)}
+            onClick={() => { setReceiptCategory('fuel'); setShowReceiptModal(true); }}
             disabled={!assignedVehicle}
             className="w-full flex items-center gap-4 p-4 bg-white rounded-xl border border-slate-200 hover:border-amber-300 hover:bg-amber-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
@@ -414,8 +561,8 @@ export default function DriverPortal() {
               <Fuel className="h-6 w-6 text-amber-600" />
             </div>
             <div className="text-left">
-              <h4 className="font-medium text-slate-800">Yakit Fisi Gonder</h4>
-              <p className="text-sm text-slate-500">Yakit alimlarini kaydedin</p>
+              <h4 className="font-medium text-slate-800">Yakit / Yemek Fisi</h4>
+              <p className="text-sm text-slate-500">Fis fotograflayin ve gonderin</p>
             </div>
           </button>
 
@@ -534,34 +681,120 @@ export default function DriverPortal() {
         </div>
       </Modal>
 
-      {/* Fuel Modal */}
-      <Modal isOpen={showFuelModal} onClose={() => setShowFuelModal(false)} title="Yakit Fisi Gonder">
+      {/* Receipt Upload Modal (Fuel + Meal) */}
+      <Modal
+        isOpen={showReceiptModal}
+        onClose={() => { setShowReceiptModal(false); setReceiptImage(null); setReceiptPreview(null); }}
+        title="Fis Gonder"
+      >
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Miktar (Lt) *</label>
-              <input
-                type="number"
-                value={fuelAmount}
-                onChange={(e) => setFuelAmount(e.target.value)}
-                placeholder="50"
-                className="w-full px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-              />
+          {/* Category Selector */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Fis Turu *</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setReceiptCategory('fuel')}
+                className={`flex items-center justify-center gap-2 p-3 rounded-lg border-2 text-sm font-medium transition-all ${
+                  receiptCategory === 'fuel'
+                    ? 'border-amber-500 bg-amber-50 text-amber-800'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                }`}
+              >
+                <Fuel className="h-4 w-4" />
+                Yakit Fisi
+              </button>
+              <button
+                type="button"
+                onClick={() => setReceiptCategory('meal')}
+                className={`flex items-center justify-center gap-2 p-3 rounded-lg border-2 text-sm font-medium transition-all ${
+                  receiptCategory === 'meal'
+                    ? 'border-green-500 bg-green-50 text-green-800'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                }`}
+              >
+                <UtensilsCrossed className="h-4 w-4" />
+                Yemek Fisi
+              </button>
             </div>
+          </div>
+
+          {/* Amount + Liters */}
+          <div className={`grid gap-4 ${receiptCategory === 'fuel' ? 'grid-cols-2' : 'grid-cols-1'}`}>
+            {receiptCategory === 'fuel' && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Miktar (Lt)</label>
+                <input
+                  type="number"
+                  value={receiptLiters}
+                  onChange={(e) => setReceiptLiters(e.target.value)}
+                  placeholder="50"
+                  className="w-full px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Tutar (TL) *</label>
               <input
                 type="number"
-                value={fuelCost}
-                onChange={(e) => setFuelCost(e.target.value)}
+                value={receiptAmount}
+                onChange={(e) => setReceiptAmount(e.target.value)}
                 placeholder="2500"
                 className="w-full px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
               />
             </div>
           </div>
+
+          {/* Image Upload */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Fis Gorseli Yukle</label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handleImageSelect}
+              className="hidden"
+            />
+            {receiptPreview ? (
+              <div className="relative">
+                <img
+                  src={receiptPreview}
+                  alt="Fis onizleme"
+                  className="w-full h-48 object-cover rounded-lg border border-slate-200"
+                />
+                <button
+                  type="button"
+                  onClick={() => { setReceiptImage(null); setReceiptPreview(null); }}
+                  className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full text-xs hover:bg-red-600"
+                >
+                  &times;
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-slate-300 rounded-xl hover:border-blue-400 hover:bg-blue-50/50 transition-all"
+              >
+                <Camera className="h-8 w-8 text-slate-400" />
+                <span className="text-sm text-slate-600 font-medium">Fotograf Cek veya Galeri'den Sec</span>
+                <span className="text-xs text-slate-400">Kamera veya dosya secimi icin dokununuz</span>
+              </button>
+            )}
+          </div>
+
           <div className="flex gap-3 pt-2">
-            <Button variant="secondary" onClick={() => setShowFuelModal(false)} className="flex-1">Iptal</Button>
-            <Button onClick={handleSubmitFuel} loading={submitting} className="flex-1">Kaydet</Button>
+            <Button
+              variant="secondary"
+              onClick={() => { setShowReceiptModal(false); setReceiptImage(null); setReceiptPreview(null); }}
+              className="flex-1"
+            >
+              Iptal
+            </Button>
+            <Button onClick={handleSubmitReceipt} loading={submitting} className="flex-1">
+              Gonder
+            </Button>
           </div>
         </div>
       </Modal>
