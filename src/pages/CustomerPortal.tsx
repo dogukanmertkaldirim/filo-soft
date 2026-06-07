@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Car, FileText, MessageSquare, Wallet, CreditCard, CheckCircle, AlertCircle, Calendar, AlertOctagon, Truck, Users, User, ClipboardCheck, ClipboardList, Wrench, AlertTriangle } from 'lucide-react';
+import { Car, FileText, MessageSquare, Wallet, CreditCard, CheckCircle, AlertCircle, Calendar, AlertOctagon, Truck, Users, User, ClipboardCheck, ClipboardList, Wrench, AlertTriangle, Fuel } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { formatCurrency } from '../utils/format';
@@ -19,6 +19,7 @@ import MyWallet from '../components/customer/MyWallet';
 import DriverApprovals from '../components/customer/DriverApprovals';
 import TenantServiceAppointments from '../components/customer/TenantServiceAppointments';
 import TrafficFines from '../components/customer/TrafficFines';
+import FuelAnalytics from '../components/customer/FuelAnalytics';
 
 interface Vehicle {
   id: string;
@@ -36,7 +37,7 @@ interface DriverAssignment {
   driver_name: string;
 }
 
-type TabType = 'home' | 'documents' | 'requests' | 'finance' | 'services' | 'damage' | 'handovers' | 'transfer' | 'drivers' | 'wallet' | 'driver_approvals' | 'service_schedule' | 'traffic_fines';
+type TabType = 'home' | 'documents' | 'requests' | 'finance' | 'services' | 'damage' | 'handovers' | 'transfer' | 'drivers' | 'wallet' | 'driver_approvals' | 'service_schedule' | 'traffic_fines' | 'fuel_analytics';
 
 export default function CustomerPortal() {
   const { user, companyId, company } = useAuth();
@@ -373,6 +374,21 @@ export default function CustomerPortal() {
             </div>
           </button>
 
+          <button
+            onClick={() => setActiveTab('fuel_analytics')}
+            className="w-full p-4 bg-gradient-to-r from-emerald-500 to-teal-600 rounded-xl shadow-sm text-left text-white"
+          >
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-white/20 rounded-lg backdrop-blur-sm">
+                <Fuel className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold">Yakit Tuketim Analizi</p>
+                <p className="text-xs text-emerald-100 mt-0.5">Arac basi TL/km maliyet takibi</p>
+              </div>
+            </div>
+          </button>
+
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
             <div className="flex items-center gap-3 mb-4">
               <div className={`p-2.5 rounded-xl ${totalDebt > 0 ? 'bg-amber-100' : 'bg-green-100'}`}>
@@ -624,6 +640,20 @@ export default function CustomerPortal() {
           <h2 className="text-lg font-bold text-slate-900">Trafik Cezalari</h2>
           <p className="text-sm text-slate-500">Araclariniza gelen trafik cezalarini kaydedin ve soforlere atayin.</p>
           <TrafficFines vehicleIds={vehicleIds} companyId={companyId} />
+        </div>
+      )}
+
+      {activeTab === 'fuel_analytics' && user && companyId && (
+        <div className="space-y-4">
+          <button
+            onClick={() => setActiveTab('home')}
+            className="text-sm text-teal-600 font-medium flex items-center gap-1 mb-2"
+          >
+            ← Ana Sayfa
+          </button>
+          <h2 className="text-lg font-bold text-slate-900">Yakit Tuketim Analizi</h2>
+          <p className="text-sm text-slate-500">Araclarinizin kilometre basina yakit maliyetini takip edin.</p>
+          <FuelAnalytics vehicleIds={vehicleIds} companyId={companyId} />
         </div>
       )}
 
