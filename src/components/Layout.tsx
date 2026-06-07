@@ -32,6 +32,7 @@ import {
   FolderCog,
   Crown,
   CircleUser,
+  UserPlus,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -120,6 +121,7 @@ const navGroups: NavGroup[] = [
       { path: '/calendar', label: 'Takvim', icon: Calendar },
       { path: '/notes', label: 'Notlar', icon: StickyNote },
       { path: '/integrations', label: 'Entegrasyonlar', icon: Plug },
+      { path: '/staff', label: 'Calisan Yonetimi', icon: UserPlus },
       { path: '/settings', label: 'Ayarlar', icon: Settings },
     ],
   },
