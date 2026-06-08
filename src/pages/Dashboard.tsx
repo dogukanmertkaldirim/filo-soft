@@ -37,6 +37,7 @@ import {
   Legend,
 } from 'recharts';
 import { supabase } from '../lib/supabase';
+import SponsorCarousel from '../components/campaigns/SponsorCarousel';
 import { useDashboardStats } from '../hooks/useDashboardStats';
 import { useAuth } from '../context/AuthContext';
 import { formatCurrency, formatDate } from '../utils/format';
@@ -407,6 +408,9 @@ export default function Dashboard() {
               </div>
             )}
           </div>
+
+          {/* Sponsor Carousel */}
+          <SponsorCarousel variant="dashboard" />
 
           {isModuleActive('crm') && stats.pendingRequests.total > 0 && (
             <div

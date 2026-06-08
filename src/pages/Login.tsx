@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Shield, User, Lock, LogIn, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import SponsorCarousel from '../components/campaigns/SponsorCarousel';
 
 export default function Login() {
   const { unifiedLogin } = useAuth();
@@ -29,7 +30,8 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen flex flex-col">
+      <div className="flex-1 flex">
       <div className="hidden lg:flex lg:w-[55%] relative bg-[#0f172a] overflow-hidden">
         <div className="absolute inset-0">
           <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-gradient-to-bl from-sky-500/8 to-transparent rounded-full -translate-y-1/3 translate-x-1/4" />
@@ -187,6 +189,8 @@ export default function Login() {
           </div>
         </div>
       </div>
+      </div>
+      <SponsorCarousel variant="login" />
     </div>
   );
 }

@@ -33,10 +33,12 @@ import {
   Crown,
   CircleUser,
   ClipboardCheck,
+  Megaphone,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import type { ModuleType } from '../types/database';
+import AnnouncementModal from './campaigns/AnnouncementModal';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -122,6 +124,7 @@ const navGroups: NavGroup[] = [
       { path: '/notes', label: 'Notlar', icon: StickyNote },
       { path: '/integrations', label: 'Entegrasyonlar', icon: Plug },
       { path: '/task-approvals', label: 'Gorev Onaylari', icon: ClipboardCheck },
+      { path: '/campaigns', label: 'Kampanya & Bildirimler', icon: Megaphone },
       { path: '/settings', label: 'Ayarlar', icon: Settings },
     ],
   },
@@ -694,6 +697,8 @@ export default function Layout({ children }: LayoutProps) {
 
         <main className="p-6">{children}</main>
       </div>
+
+      <AnnouncementModal />
     </div>
   );
 }
