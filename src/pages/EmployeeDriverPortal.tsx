@@ -2,13 +2,18 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   User, LogOut, Clock, MapPin, CheckCircle, Truck, Wrench,
   ClipboardCheck, ArrowRight, Fuel, Droplets, AlertTriangle,
-  PenTool, ChevronRight, Car, Gauge, Upload, X, Image as ImageIcon
+  PenTool, ChevronRight, Car, Gauge, Upload, X, Image as ImageIcon,
+  WifiOff, Wifi
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
 import CarDamageSchema from '../components/vehicle/CarDamageSchema';
+import {
+  OfflinePayload, getOfflineQueue, addToOfflineQueue,
+  processOfflineQueue, isNetworkError
+} from '../utils/offlineQueue';
 
 interface OperationalTask {
   id: string;
@@ -53,10 +58,35 @@ export default function EmployeeDriverPortal() {
   const [showGenericUpload, setShowGenericUpload] = useState(false);
   const [activeTask, setActiveTask] = useState<OperationalTask | null>(null);
   const [tab, setTab] = useState<'active' | 'completed'>('active');
+  const [offlineQueue, setOfflineQueue] = useState<OfflinePayload[]>(() => getOfflineQueue());
+  const [offlineToast, setOfflineToast] = useState<string | null>(null);
+  const [syncToast, setSyncToast] = useState<string | null>(null);
 
   useEffect(() => {
     loadTasks();
   }, [user]);
+
+  // Online sync listener
+  useEffect(() => {
+    async function handleOnlineSync() {
+      const queue = getOfflineQueue();
+      if (queue.length === 0) return;
+      const processed = await processOfflineQueue();
+      if (processed > 0) {
+        setSyncToast('Kuyruktaki saha gorevleri basariyla sisteme aktarildi!');
+        setOfflineQueue(getOfflineQueue());
+        await loadTasks();
+        setTimeout(() => setSyncToast(null), 5000);
+      }
+    }
+
+    window.addEventListener('online', handleOnlineSync);
+    // Try syncing on mount if online and queue has items
+    if (navigator.onLine && getOfflineQueue().length > 0) {
+      handleOnlineSync();
+    }
+    return () => window.removeEventListener('online', handleOnlineSync);
+  }, []);
 
   async function loadTasks() {
     if (!user?.id) return;
@@ -160,6 +190,51 @@ export default function EmployeeDriverPortal() {
       </header>
 
       <main className="max-w-lg mx-auto px-4 py-6 space-y-4">
+        {/* Offline Toast */}
+        {offlineToast && (
+          <div className="p-4 bg-amber-50 border-2 border-amber-300 rounded-xl flex items-start gap-3 animate-pulse">
+            <WifiOff className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-amber-900">Cevrimdisi Mod Aktif</p>
+              <p className="text-xs text-amber-700 mt-0.5">{offlineToast}</p>
+            </div>
+            <button onClick={() => setOfflineToast(null)} className="ml-auto p-1">
+              <X className="h-4 w-4 text-amber-500" />
+            </button>
+          </div>
+        )}
+
+        {/* Sync Success Toast */}
+        {syncToast && (
+          <div className="p-4 bg-green-50 border-2 border-green-300 rounded-xl flex items-start gap-3">
+            <Wifi className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-green-900">Senkronizasyon Tamamlandi</p>
+              <p className="text-xs text-green-700 mt-0.5">{syncToast}</p>
+            </div>
+            <button onClick={() => setSyncToast(null)} className="ml-auto p-1">
+              <X className="h-4 w-4 text-green-500" />
+            </button>
+          </div>
+        )}
+
+        {/* Offline Queue Badge */}
+        {offlineQueue.length > 0 && (
+          <div className="p-3 bg-yellow-50 border border-yellow-300 rounded-xl flex items-center gap-3">
+            <div className="h-8 w-8 bg-yellow-100 rounded-full flex items-center justify-center flex-shrink-0">
+              <WifiOff className="h-4 w-4 text-yellow-700" />
+            </div>
+            <div className="flex-1">
+              <p className="text-xs font-semibold text-yellow-800">
+                {offlineQueue.length} gorev kuyrukta bekliyor
+              </p>
+              <p className="text-xs text-yellow-600">Baglanti geldiginde otomatik yuklenecek</p>
+            </div>
+            <span className="px-2 py-1 bg-yellow-200 text-yellow-800 text-xs font-bold rounded-full">
+              Kuyrukta
+            </span>
+          </div>
+        )}
         {/* Tab Toggle */}
         <div className="flex bg-white rounded-xl border border-slate-200 p-1">
           <button
@@ -322,6 +397,14 @@ export default function EmployeeDriverPortal() {
             setActiveTask(null);
             await loadTasks();
           }}
+          onOfflineQueue={(payload) => {
+            addToOfflineQueue(payload);
+            setOfflineQueue(getOfflineQueue());
+            setShowHandover(false);
+            setActiveTask(null);
+            setOfflineToast('Internet baglantiniz koptu ancak teslimat verileriniz ve imzaniz guvenle telefona kaydedildi. Internetiniz geldiginde arka planda otomatik yuklenecektir.');
+            setTimeout(() => setOfflineToast(null), 8000);
+          }}
         />
       )}
 
@@ -336,6 +419,14 @@ export default function EmployeeDriverPortal() {
             setActiveTask(null);
             await loadTasks();
           }}
+          onOfflineQueue={(payload) => {
+            addToOfflineQueue(payload);
+            setOfflineQueue(getOfflineQueue());
+            setShowDelivery(false);
+            setActiveTask(null);
+            setOfflineToast('Internet baglantiniz koptu ancak teslimat verileriniz ve imzaniz guvenle telefona kaydedildi. Internetiniz geldiginde arka planda otomatik yuklenecektir.');
+            setTimeout(() => setOfflineToast(null), 8000);
+          }}
         />
       )}
 
@@ -349,6 +440,14 @@ export default function EmployeeDriverPortal() {
             setShowGenericUpload(false);
             setActiveTask(null);
             await loadTasks();
+          }}
+          onOfflineQueue={(payload) => {
+            addToOfflineQueue(payload);
+            setOfflineQueue(getOfflineQueue());
+            setShowGenericUpload(false);
+            setActiveTask(null);
+            setOfflineToast('Internet baglantiniz koptu ancak gorev verileriniz guvenle telefona kaydedildi. Internetiniz geldiginde arka planda otomatik yuklenecektir.');
+            setTimeout(() => setOfflineToast(null), 8000);
           }}
         />
       )}
@@ -365,9 +464,10 @@ interface HandoverWizardProps {
   task: OperationalTask;
   onClose: () => void;
   onComplete: () => void;
+  onOfflineQueue: (payload: OfflinePayload) => void;
 }
 
-function HandoverWizard({ isOpen, task, onClose, onComplete }: HandoverWizardProps) {
+function HandoverWizard({ isOpen, task, onClose, onComplete, onOfflineQueue }: HandoverWizardProps) {
   const { user } = useAuth();
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -414,20 +514,6 @@ function HandoverWizard({ isOpen, task, onClose, onComplete }: HandoverWizardPro
     if (!signatureDataUrl) return;
     setSaving(true);
 
-    // Upload signature
-    let sigUrl: string | null = null;
-    try {
-      const blob = await (await fetch(signatureDataUrl)).blob();
-      const path = `signatures/${user?.company_id}/${task.id}_${Date.now()}.png`;
-      const { error: uploadErr } = await supabase.storage.from('documents').upload(path, blob, { contentType: 'image/png' });
-      if (!uploadErr) {
-        const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path);
-        sigUrl = urlData.publicUrl;
-      }
-    } catch {
-      // continue
-    }
-
     const submittedData = {
       km: parseInt(km),
       fuel_level: fuelLevel,
@@ -437,14 +523,99 @@ function HandoverWizard({ isOpen, task, onClose, onComplete }: HandoverWizardPro
       submitted_by: user?.full_name,
     };
 
+    // Check offline first
+    if (!navigator.onLine) {
+      const payload: OfflinePayload = {
+        id: `${task.id}_${Date.now()}`,
+        taskId: task.id,
+        taskType: task.task_type,
+        vehicleId: task.vehicle_id,
+        vehiclePlate: task.vehicles?.plate || null,
+        companyId: user?.company_id || '',
+        submittedData,
+        signatureDataUrl,
+        fileDataUrls: uploadedFiles,
+        rentalUpdate: task.vehicle_id ? {
+          type: 'handover',
+          vehicleId: task.vehicle_id,
+          payload: { ...submittedData, operational_task_id: task.id },
+          rentalStatus: 'active',
+        } : undefined,
+        queuedAt: new Date().toISOString(),
+      };
+      onOfflineQueue(payload);
+      setSaving(false);
+      return;
+    }
+
+    // Online: Upload signature
+    let sigUrl: string | null = null;
+    try {
+      const blob = await (await fetch(signatureDataUrl)).blob();
+      const path = `signatures/${user?.company_id}/${task.id}_${Date.now()}.png`;
+      const { error: uploadErr } = await supabase.storage.from('documents').upload(path, blob, { contentType: 'image/png' });
+      if (!uploadErr) {
+        const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path);
+        sigUrl = urlData.publicUrl;
+      }
+    } catch (err) {
+      if (isNetworkError(err)) {
+        const payload: OfflinePayload = {
+          id: `${task.id}_${Date.now()}`,
+          taskId: task.id,
+          taskType: task.task_type,
+          vehicleId: task.vehicle_id,
+          vehiclePlate: task.vehicles?.plate || null,
+          companyId: user?.company_id || '',
+          submittedData,
+          signatureDataUrl,
+          fileDataUrls: uploadedFiles,
+          rentalUpdate: task.vehicle_id ? {
+            type: 'handover',
+            vehicleId: task.vehicle_id,
+            payload: { ...submittedData, operational_task_id: task.id },
+            rentalStatus: 'active',
+          } : undefined,
+          queuedAt: new Date().toISOString(),
+        };
+        onOfflineQueue(payload);
+        setSaving(false);
+        return;
+      }
+    }
+
     // Set to pending_sync - NO direct vehicle update
-    await supabase.from('operational_tasks').update({
+    const { error: taskErr } = await supabase.from('operational_tasks').update({
       status: 'pending_sync',
       handover_data: submittedData,
       submitted_data: submittedData,
       signature_url: sigUrl,
       file_urls: uploadedFiles,
     }).eq('id', task.id);
+
+    if (taskErr && isNetworkError(taskErr)) {
+      const payload: OfflinePayload = {
+        id: `${task.id}_${Date.now()}`,
+        taskId: task.id,
+        taskType: task.task_type,
+        vehicleId: task.vehicle_id,
+        vehiclePlate: task.vehicles?.plate || null,
+        companyId: user?.company_id || '',
+        submittedData,
+        signatureDataUrl,
+        fileDataUrls: uploadedFiles,
+        rentalUpdate: task.vehicle_id ? {
+          type: 'handover',
+          vehicleId: task.vehicle_id,
+          payload: { ...submittedData, operational_task_id: task.id },
+          rentalStatus: 'active',
+        } : undefined,
+        queuedAt: new Date().toISOString(),
+      };
+      onOfflineQueue(payload);
+      setSaving(false);
+      return;
+    }
 
     // Save handover_payload to the active rental for this vehicle
     if (task.vehicle_id) {
@@ -703,9 +874,10 @@ interface DeliveryWizardProps {
   task: OperationalTask;
   onClose: () => void;
   onComplete: () => void;
+  onOfflineQueue: (payload: OfflinePayload) => void;
 }
 
-function DeliveryWizard({ isOpen, task, onClose, onComplete }: DeliveryWizardProps) {
+function DeliveryWizard({ isOpen, task, onClose, onComplete, onOfflineQueue }: DeliveryWizardProps) {
   const { user } = useAuth();
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -751,19 +923,6 @@ function DeliveryWizard({ isOpen, task, onClose, onComplete }: DeliveryWizardPro
     if (!signatureDataUrl) return;
     setSaving(true);
 
-    let sigUrl: string | null = null;
-    try {
-      const blob = await (await fetch(signatureDataUrl)).blob();
-      const path = `signatures/${user?.company_id}/${task.id}_delivery_${Date.now()}.png`;
-      const { error: uploadErr } = await supabase.storage.from('documents').upload(path, blob, { contentType: 'image/png' });
-      if (!uploadErr) {
-        const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path);
-        sigUrl = urlData.publicUrl;
-      }
-    } catch {
-      // continue
-    }
-
     const submittedData = {
       km: parseInt(km),
       fuel_level: fuelLevel,
@@ -773,13 +932,97 @@ function DeliveryWizard({ isOpen, task, onClose, onComplete }: DeliveryWizardPro
       submitted_by: user?.full_name,
     };
 
-    await supabase.from('operational_tasks').update({
+    // Check offline first
+    if (!navigator.onLine) {
+      const payload: OfflinePayload = {
+        id: `${task.id}_${Date.now()}`,
+        taskId: task.id,
+        taskType: task.task_type,
+        vehicleId: task.vehicle_id,
+        vehiclePlate: task.vehicles?.plate || null,
+        companyId: user?.company_id || '',
+        submittedData,
+        signatureDataUrl,
+        fileDataUrls: uploadedFiles,
+        rentalUpdate: task.vehicle_id ? {
+          type: 'delivery',
+          vehicleId: task.vehicle_id,
+          payload: { ...submittedData, operational_task_id: task.id },
+          rentalStatus: 'pending',
+        } : undefined,
+        queuedAt: new Date().toISOString(),
+      };
+      onOfflineQueue(payload);
+      setSaving(false);
+      return;
+    }
+
+    let sigUrl: string | null = null;
+    try {
+      const blob = await (await fetch(signatureDataUrl)).blob();
+      const path = `signatures/${user?.company_id}/${task.id}_delivery_${Date.now()}.png`;
+      const { error: uploadErr } = await supabase.storage.from('documents').upload(path, blob, { contentType: 'image/png' });
+      if (!uploadErr) {
+        const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path);
+        sigUrl = urlData.publicUrl;
+      }
+    } catch (err) {
+      if (isNetworkError(err)) {
+        const payload: OfflinePayload = {
+          id: `${task.id}_${Date.now()}`,
+          taskId: task.id,
+          taskType: task.task_type,
+          vehicleId: task.vehicle_id,
+          vehiclePlate: task.vehicles?.plate || null,
+          companyId: user?.company_id || '',
+          submittedData,
+          signatureDataUrl,
+          fileDataUrls: uploadedFiles,
+          rentalUpdate: task.vehicle_id ? {
+            type: 'delivery',
+            vehicleId: task.vehicle_id,
+            payload: { ...submittedData, operational_task_id: task.id },
+            rentalStatus: 'pending',
+          } : undefined,
+          queuedAt: new Date().toISOString(),
+        };
+        onOfflineQueue(payload);
+        setSaving(false);
+        return;
+      }
+    }
+
+    const { error: taskErr } = await supabase.from('operational_tasks').update({
       status: 'pending_sync',
       handover_data: submittedData,
       submitted_data: submittedData,
       signature_url: sigUrl,
       file_urls: uploadedFiles,
     }).eq('id', task.id);
+
+    if (taskErr && isNetworkError(taskErr)) {
+      const payload: OfflinePayload = {
+        id: `${task.id}_${Date.now()}`,
+        taskId: task.id,
+        taskType: task.task_type,
+        vehicleId: task.vehicle_id,
+        vehiclePlate: task.vehicles?.plate || null,
+        companyId: user?.company_id || '',
+        submittedData,
+        signatureDataUrl,
+        fileDataUrls: uploadedFiles,
+        rentalUpdate: task.vehicle_id ? {
+          type: 'delivery',
+          vehicleId: task.vehicle_id,
+          payload: { ...submittedData, operational_task_id: task.id },
+          rentalStatus: 'pending',
+        } : undefined,
+        queuedAt: new Date().toISOString(),
+      };
+      onOfflineQueue(payload);
+      setSaving(false);
+      return;
+    }
 
     // Save delivery_payload to the rental (pending status)
     if (task.vehicle_id) {
@@ -1145,9 +1388,10 @@ interface GenericTaskUploadProps {
   task: OperationalTask;
   onClose: () => void;
   onComplete: () => void;
+  onOfflineQueue: (payload: OfflinePayload) => void;
 }
 
-function GenericTaskUpload({ isOpen, task, onClose, onComplete }: GenericTaskUploadProps) {
+function GenericTaskUpload({ isOpen, task, onClose, onComplete, onOfflineQueue }: GenericTaskUploadProps) {
   const { user } = useAuth();
   const [files, setFiles] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -1190,11 +1434,47 @@ function GenericTaskUpload({ isOpen, task, onClose, onComplete }: GenericTaskUpl
       submittedData.tire_info = tireInfo;
     }
 
-    await supabase.from('operational_tasks').update({
+    if (!navigator.onLine) {
+      const payload: OfflinePayload = {
+        id: `${task.id}_${Date.now()}`,
+        taskId: task.id,
+        taskType: task.task_type,
+        vehicleId: task.vehicle_id,
+        vehiclePlate: task.vehicles?.plate || null,
+        companyId: user?.company_id || '',
+        submittedData,
+        signatureDataUrl: null,
+        fileDataUrls: files,
+        queuedAt: new Date().toISOString(),
+      };
+      onOfflineQueue(payload);
+      setSaving(false);
+      return;
+    }
+
+    const { error: taskErr } = await supabase.from('operational_tasks').update({
       status: 'pending_sync',
       submitted_data: submittedData,
       file_urls: files,
     }).eq('id', task.id);
+
+    if (taskErr && isNetworkError(taskErr)) {
+      const payload: OfflinePayload = {
+        id: `${task.id}_${Date.now()}`,
+        taskId: task.id,
+        taskType: task.task_type,
+        vehicleId: task.vehicle_id,
+        vehiclePlate: task.vehicles?.plate || null,
+        companyId: user?.company_id || '',
+        submittedData,
+        signatureDataUrl: null,
+        fileDataUrls: files,
+        queuedAt: new Date().toISOString(),
+      };
+      onOfflineQueue(payload);
+      setSaving(false);
+      return;
+    }
 
     setSaving(false);
     onComplete();
