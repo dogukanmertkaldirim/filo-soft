@@ -11,11 +11,14 @@ import {
   Shield,
   ChevronRight,
   User,
+  Megaphone,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import AnnouncementModal from './campaigns/AnnouncementModal';
 
 const navigation = [
   { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
+  { name: 'Kampanyalar & Bildirimler', href: '/admin/campaigns', icon: Megaphone },
   { name: 'Paketler', href: '/admin/plans', icon: Package },
   { name: 'Sistem Loglari', href: '/admin/logs', icon: FileText },
   { name: 'Ayarlar', href: '/admin/settings', icon: Settings },
@@ -134,6 +137,8 @@ export default function SuperAdminLayout() {
           <Outlet />
         </div>
       </main>
+
+      <AnnouncementModal />
     </div>
   );
 }

@@ -117,6 +117,11 @@ function AppRoutes() {
               <SuperAdminDashboard />
             </Suspense>
           } />
+          <Route path="campaigns" element={
+            <Suspense fallback={<SuperAdminPageLoader />}>
+              <Campaigns />
+            </Suspense>
+          } />
           <Route path="plans" element={
             <Suspense fallback={<SuperAdminPageLoader />}>
               <Plans />

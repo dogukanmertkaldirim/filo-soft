@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Car, LogOut, User } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import AnnouncementModal from './campaigns/AnnouncementModal';
 
 interface CustomerLayoutProps {
   children: React.ReactNode;
@@ -107,6 +108,8 @@ export default function CustomerLayout({ children }: CustomerLayoutProps) {
           </p>
         </div>
       </footer>
+
+      <AnnouncementModal />
     </div>
   );
 }
