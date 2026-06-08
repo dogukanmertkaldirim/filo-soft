@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ClipboardCheck, Car, User, Clock, CheckCircle, AlertTriangle, ArrowRightLeft, FileText, Image as ImageIcon, Fuel, Gauge, Droplets, Wrench } from 'lucide-react';
+import { ClipboardCheck, Car, User, Clock, CheckCircle, AlertTriangle, ArrowRightLeft, FileText, Image as ImageIcon, Fuel, Gauge, Droplets, Wrench, Truck } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { formatDate } from '../utils/format';
@@ -24,6 +24,7 @@ interface PendingTask {
 
 const TASK_TYPE_LABELS: Record<string, string> = {
   teslim_alma: 'Teslim Alma',
+  teslim_et: 'Araci Teslim Et',
   lastik_degisimi: 'Lastik Degisimi',
   muayene: 'Muayeneye Gotur',
   lastik_teslimat: 'Lastikten Musteriye Teslimat',
@@ -68,6 +69,22 @@ export default function TaskApprovalPool() {
       if ((submitted as any).damage_schema && Object.keys((submitted as any).damage_schema).length > 0) {
         vehicleUpdate.damage_schema = (submitted as any).damage_schema;
       }
+    }
+
+    // Teslim Et: KM + damage + status to rented
+    if (task.task_type === 'teslim_et') {
+      if ((submitted as any).km) vehicleUpdate.current_km = (submitted as any).km;
+      if ((submitted as any).damage_schema && Object.keys((submitted as any).damage_schema).length > 0) {
+        vehicleUpdate.damage_schema = (submitted as any).damage_schema;
+      }
+      vehicleUpdate.status = 'rented';
+
+      // Activate the pending rental for this vehicle
+      await supabase
+        .from('rentals')
+        .update({ status: 'active', start_date: new Date().toISOString().split('T')[0] })
+        .eq('vehicle_id', task.vehicle_id)
+        .eq('status', 'pending');
     }
 
     // TUVTURK / Muayene: inspection date
@@ -319,6 +336,69 @@ function ComparisonModal({ task, isOpen, onClose, onSync, syncing }: ComparisonM
             {task.signature_url && (
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
                 <p className="text-xs font-medium text-slate-700 mb-2">Teslim Eden Imzasi</p>
+                <img src={task.signature_url} alt="Imza" className="h-20 border border-slate-300 rounded-lg bg-white" />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Teslim Et (Delivery) comparison */}
+        {task.task_type === 'teslim_et' && (
+          <div className="space-y-2">
+            <h4 className="text-sm font-semibold text-slate-800">Arac Teslim Verileri</h4>
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+              <p className="text-xs text-emerald-800 font-medium flex items-center gap-1.5">
+                <Truck className="h-3.5 w-3.5" />
+                Onaylandiginda arac "Kiralanmis" olarak isaretlenecek ve kiralama baslatilacaktir.
+              </p>
+            </div>
+            <DiffRow
+              label="Kilometre"
+              icon={<Gauge className="h-3.5 w-3.5 text-slate-500" />}
+              current={vehicle?.current_km?.toLocaleString() || '-'}
+              incoming={(submitted as any).km?.toLocaleString() || '-'}
+            />
+            <DiffRow
+              label="Yakit Durumu"
+              icon={<Fuel className="h-3.5 w-3.5 text-slate-500" />}
+              current="-"
+              incoming={fuelLabels[(submitted as any).fuel_level] || (submitted as any).fuel_level || '-'}
+            />
+            <DiffRow
+              label="Temizlik"
+              icon={<Droplets className="h-3.5 w-3.5 text-slate-500" />}
+              current="-"
+              incoming={cleanLabels[(submitted as any).cleanliness] || (submitted as any).cleanliness || '-'}
+            />
+            <DiffRow
+              label="Arac Durumu"
+              icon={<Car className="h-3.5 w-3.5 text-slate-500" />}
+              current="Bosta"
+              incoming="Kiralanmis"
+            />
+
+            {/* Damage */}
+            {(submitted as any).damage_schema && Object.keys((submitted as any).damage_schema).length > 0 && (
+              <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl">
+                <p className="text-xs font-semibold text-amber-700 mb-2 flex items-center gap-1">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Teslim Oncesi Hasar Kayitlari
+                </p>
+                <div className="grid grid-cols-2 gap-1">
+                  {Object.entries((submitted as any).damage_schema as Record<string, string>).map(([part, note]) => (
+                    <div key={part} className="text-xs bg-amber-100 px-2 py-1 rounded">
+                      <span className="font-medium text-amber-800">{part}:</span>{' '}
+                      <span className="text-amber-700">{note}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Signature */}
+            {task.signature_url && (
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                <p className="text-xs font-medium text-slate-700 mb-2">Musteri Teslim Alma Imzasi</p>
                 <img src={task.signature_url} alt="Imza" className="h-20 border border-slate-300 rounded-lg bg-white" />
               </div>
             )}

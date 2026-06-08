@@ -25,6 +25,7 @@ interface OperationalTask {
 
 const TASK_TYPE_META: Record<string, { label: string; color: string; icon: typeof Truck }> = {
   'teslim_alma': { label: 'Teslim Alma', color: 'bg-blue-100 text-blue-700 border-blue-200', icon: ClipboardCheck },
+  'teslim_et': { label: 'Araci Teslim Et', color: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: Truck },
   'lastik_degisimi': { label: 'Lastik Degisimi', color: 'bg-amber-100 text-amber-700 border-amber-200', icon: Wrench },
   'muayene': { label: 'Muayeneye Gotur', color: 'bg-purple-100 text-purple-700 border-purple-200', icon: ClipboardCheck },
   'lastik_teslimat': { label: 'Lastikten Musteriye Teslimat', color: 'bg-teal-100 text-teal-700 border-teal-200', icon: Truck },
@@ -48,6 +49,7 @@ export default function EmployeeDriverPortal() {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
   const [showHandover, setShowHandover] = useState(false);
+  const [showDelivery, setShowDelivery] = useState(false);
   const [showGenericUpload, setShowGenericUpload] = useState(false);
   const [activeTask, setActiveTask] = useState<OperationalTask | null>(null);
   const [tab, setTab] = useState<'active' | 'completed'>('active');
@@ -78,6 +80,13 @@ export default function EmployeeDriverPortal() {
     if (nextStatus === 'pending_sync' && task.task_type === 'teslim_alma') {
       setActiveTask(task);
       setShowHandover(true);
+      return;
+    }
+
+    // For teslim_et, launch delivery wizard
+    if (nextStatus === 'pending_sync' && task.task_type === 'teslim_et') {
+      setActiveTask(task);
+      setShowDelivery(true);
       return;
     }
 
@@ -310,6 +319,20 @@ export default function EmployeeDriverPortal() {
           onClose={() => { setShowHandover(false); setActiveTask(null); }}
           onComplete={async () => {
             setShowHandover(false);
+            setActiveTask(null);
+            await loadTasks();
+          }}
+        />
+      )}
+
+      {/* Delivery Wizard */}
+      {activeTask && showDelivery && (
+        <DeliveryWizard
+          isOpen={showDelivery}
+          task={activeTask}
+          onClose={() => { setShowDelivery(false); setActiveTask(null); }}
+          onComplete={async () => {
+            setShowDelivery(false);
             setActiveTask(null);
             await loadTasks();
           }}
@@ -661,6 +684,343 @@ function HandoverWizard({ isOpen, task, onClose, onComplete }: HandoverWizardPro
               disabled={!canNext() || saving}
               loading={saving}
               className="flex-1 !bg-green-600 hover:!bg-green-700"
+            >
+              Teslim Tutanagini Kaydet
+            </Button>
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ==========================================
+// DELIVERY WIZARD COMPONENT (Araci Teslim Et)
+// ==========================================
+
+interface DeliveryWizardProps {
+  isOpen: boolean;
+  task: OperationalTask;
+  onClose: () => void;
+  onComplete: () => void;
+}
+
+function DeliveryWizard({ isOpen, task, onClose, onComplete }: DeliveryWizardProps) {
+  const { user } = useAuth();
+  const [step, setStep] = useState(0);
+  const [saving, setSaving] = useState(false);
+
+  const [km, setKm] = useState('');
+  const [fuelLevel, setFuelLevel] = useState<string>('');
+  const [cleanliness, setCleanliness] = useState<string>('');
+  const [damageSchema, setDamageSchema] = useState<Record<string, string>>({});
+  const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
+  const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const steps = ['KM & Yakit', 'Temizlik & Hasar', 'Foto/Video & Imza'];
+
+  function canNext(): boolean {
+    switch (step) {
+      case 0: return !!km && !!fuelLevel;
+      case 1: return !!cleanliness;
+      case 2: return !!signatureDataUrl;
+      default: return false;
+    }
+  }
+
+  async function handleMultiFileUpload(files: FileList) {
+    setUploading(true);
+    const urls: string[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const ext = file.name.split('.').pop();
+      const path = `task-files/${user?.company_id}/${task.id}/${Date.now()}_${i}.${ext}`;
+      const { error } = await supabase.storage.from('documents').upload(path, file, { contentType: file.type });
+      if (!error) {
+        const { data } = supabase.storage.from('documents').getPublicUrl(path);
+        urls.push(data.publicUrl);
+      }
+    }
+    setUploadedFiles(prev => [...prev, ...urls]);
+    setUploading(false);
+  }
+
+  async function handleSubmit() {
+    if (!signatureDataUrl) return;
+    setSaving(true);
+
+    let sigUrl: string | null = null;
+    try {
+      const blob = await (await fetch(signatureDataUrl)).blob();
+      const path = `signatures/${user?.company_id}/${task.id}_delivery_${Date.now()}.png`;
+      const { error: uploadErr } = await supabase.storage.from('documents').upload(path, blob, { contentType: 'image/png' });
+      if (!uploadErr) {
+        const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path);
+        sigUrl = urlData.publicUrl;
+      }
+    } catch {
+      // continue
+    }
+
+    const submittedData = {
+      km: parseInt(km),
+      fuel_level: fuelLevel,
+      cleanliness,
+      damage_schema: damageSchema,
+      submitted_at: new Date().toISOString(),
+      submitted_by: user?.full_name,
+    };
+
+    await supabase.from('operational_tasks').update({
+      status: 'pending_sync',
+      handover_data: submittedData,
+      submitted_data: submittedData,
+      signature_url: sigUrl,
+      file_urls: uploadedFiles,
+    }).eq('id', task.id);
+
+    // Save delivery_payload to the rental (pending status)
+    if (task.vehicle_id) {
+      const deliveryPayload = {
+        km: parseInt(km),
+        fuel_level: fuelLevel,
+        cleanliness,
+        damage_schema: damageSchema,
+        photos: uploadedFiles,
+        signature_url: sigUrl,
+        submitted_by: user?.full_name,
+        submitted_at: new Date().toISOString(),
+        operational_task_id: task.id,
+      };
+
+      await supabase
+        .from('rentals')
+        .update({ delivery_payload: deliveryPayload })
+        .eq('vehicle_id', task.vehicle_id)
+        .eq('status', 'pending');
+    }
+
+    setSaving(false);
+    onComplete();
+  }
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Arac Teslim Tutanagi" size="lg">
+      <div className="space-y-4">
+        {/* Step Indicator */}
+        <div className="flex items-center gap-2">
+          {steps.map((s, i) => (
+            <div key={i} className="flex items-center flex-1">
+              <div className={`flex items-center justify-center h-7 w-7 rounded-full text-xs font-bold transition-all ${
+                i === step ? 'bg-emerald-600 text-white' : i < step ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'
+              }`}>
+                {i < step ? <CheckCircle className="h-4 w-4" /> : i + 1}
+              </div>
+              {i < steps.length - 1 && (
+                <div className={`flex-1 h-0.5 mx-1 ${i < step ? 'bg-emerald-400' : 'bg-slate-200'}`} />
+              )}
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-slate-500 text-center font-medium">{steps[step]}</p>
+
+        {/* Vehicle Info */}
+        {task.vehicles && (
+          <div className="flex items-center gap-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+            <Truck className="h-5 w-5 text-emerald-600" />
+            <div>
+              <p className="text-sm font-bold text-slate-900">{task.vehicles.plate}</p>
+              <p className="text-xs text-slate-500">{task.vehicles.brand} {task.vehicles.model} ({task.vehicles.year})</p>
+            </div>
+            <span className="ml-auto text-xs font-semibold px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">
+              Teslim Ediliyor
+            </span>
+          </div>
+        )}
+
+        {/* Step 0: KM & Fuel */}
+        {step === 0 && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                <Gauge className="inline h-4 w-4 mr-1" />
+                Teslim Kilometre *
+              </label>
+              {task.vehicles?.current_km && (
+                <p className="text-xs text-slate-500 mb-2">Sistemdeki son KM: {task.vehicles.current_km.toLocaleString()}</p>
+              )}
+              <input
+                type="number"
+                value={km}
+                onChange={(e) => setKm(e.target.value)}
+                placeholder="Teslim anindaki km degerini girin"
+                className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                <Fuel className="inline h-4 w-4 mr-1" />
+                Yakit Durumu *
+              </label>
+              <div className="grid grid-cols-5 gap-2">
+                {['empty', '1/4', '1/2', '3/4', 'full'].map(level => {
+                  const labels: Record<string, string> = { empty: 'Bos', '1/4': '1/4', '1/2': '1/2', '3/4': '3/4', full: 'Dolu' };
+                  const fillPercent: Record<string, number> = { empty: 5, '1/4': 25, '1/2': 50, '3/4': 75, full: 100 };
+                  const isSelected = fuelLevel === level;
+                  return (
+                    <button
+                      key={level}
+                      type="button"
+                      onClick={() => setFuelLevel(level)}
+                      className={`relative flex flex-col items-center p-2.5 rounded-xl border-2 text-xs font-medium transition-all overflow-hidden ${
+                        isSelected ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="w-6 h-10 border border-slate-300 rounded-sm relative mb-1 overflow-hidden">
+                        <div
+                          className={`absolute bottom-0 left-0 right-0 transition-all ${isSelected ? 'bg-emerald-400' : 'bg-slate-200'}`}
+                          style={{ height: `${fillPercent[level]}%` }}
+                        />
+                      </div>
+                      {labels[level]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Step 1: Cleanliness & Damage */}
+        {step === 1 && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                <Droplets className="inline h-4 w-4 mr-1" />
+                Temizlik Durumu *
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { value: 'clean', label: 'Temiz', color: 'border-green-500 bg-green-50 text-green-700' },
+                  { value: 'dirty', label: 'Kirli', color: 'border-amber-500 bg-amber-50 text-amber-700' },
+                  { value: 'needs_detail', label: 'Detayli Temizlik Gerekli', color: 'border-red-500 bg-red-50 text-red-700' },
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setCleanliness(opt.value)}
+                    className={`p-3 rounded-xl border-2 text-xs font-medium text-center transition-all ${
+                      cleanliness === opt.value ? opt.color : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                <AlertTriangle className="inline h-4 w-4 mr-1" />
+                Hasar Durumu (Teslim Oncesi)
+              </label>
+              <p className="text-xs text-slate-500 mb-3">Musteriye teslim edilmeden once mevcut hasarlari isaretleyin</p>
+              <CarDamageSchema value={damageSchema} onChange={setDamageSchema} />
+            </div>
+          </div>
+        )}
+
+        {/* Step 2: Files & Signature */}
+        {step === 2 && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                <Upload className="inline h-4 w-4 mr-1" />
+                Foto / Video / Belge Yukle
+              </label>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/*,video/*,application/pdf"
+                onChange={(e) => { if (e.target.files?.length) handleMultiFileUpload(e.target.files); }}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="w-full flex items-center justify-center gap-2 p-3 border-2 border-dashed border-slate-300 rounded-xl hover:border-emerald-400 hover:bg-emerald-50/50 transition-all disabled:opacity-50"
+              >
+                {uploading ? (
+                  <div className="h-5 w-5 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Upload className="h-5 w-5 text-slate-400" />
+                )}
+                <span className="text-sm text-slate-600">{uploading ? 'Yukleniyor...' : 'Dosya Sec (Coklu)'}</span>
+              </button>
+              {uploadedFiles.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {uploadedFiles.map((url, i) => (
+                    <div key={i} className="relative group">
+                      <div className="w-14 h-14 rounded-lg border border-slate-200 overflow-hidden bg-slate-50 flex items-center justify-center">
+                        {url.match(/\.(jpg|jpeg|png|webp|heic)/i) ? (
+                          <img src={url} className="w-full h-full object-cover" />
+                        ) : (
+                          <ImageIcon className="h-5 w-5 text-slate-400" />
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setUploadedFiles(prev => prev.filter((_, idx) => idx !== i))}
+                        className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-slate-200 pt-4">
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl mb-3">
+                <p className="text-xs text-emerald-700">
+                  <PenTool className="inline h-3.5 w-3.5 mr-1" />
+                  Araci teslim alan musterinin parmagi ile asagidaki alana imza atmasini saglayiniz.
+                </p>
+              </div>
+              <SignaturePad
+                onSignature={(dataUrl) => setSignatureDataUrl(dataUrl)}
+                signatureDataUrl={signatureDataUrl}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Navigation */}
+        <div className="flex gap-3 pt-2">
+          {step > 0 && (
+            <Button variant="secondary" onClick={() => setStep(step - 1)} className="flex-1">
+              Geri
+            </Button>
+          )}
+          {step < steps.length - 1 ? (
+            <Button
+              onClick={() => setStep(step + 1)}
+              disabled={!canNext()}
+              className="flex-1"
+            >
+              Devam <ChevronRight className="h-4 w-4 ml-1" />
+            </Button>
+          ) : (
+            <Button
+              onClick={handleSubmit}
+              disabled={!canNext() || saving}
+              loading={saving}
+              className="flex-1 !bg-emerald-600 hover:!bg-emerald-700"
             >
               Teslim Tutanagini Kaydet
             </Button>

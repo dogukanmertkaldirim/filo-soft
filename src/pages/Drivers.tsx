@@ -284,6 +284,7 @@ export default function Drivers() {
             options={[
               { value: '', label: 'Gorev secin...' },
               { value: 'teslim_alma', label: 'Teslim Alma' },
+              { value: 'teslim_et', label: 'Araci Teslim Et' },
               { value: 'lastik_degisimi', label: 'Lastik Degisimi' },
               { value: 'muayene', label: 'Muayeneye Gotur' },
               { value: 'lastik_teslimat', label: 'Lastikten Musteriye Teslimat' },

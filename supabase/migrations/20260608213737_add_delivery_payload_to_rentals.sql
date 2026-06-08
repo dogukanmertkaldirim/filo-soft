@@ -1,0 +1,1 @@
+ALTER TABLE rentals ADD COLUMN IF NOT EXISTS delivery_payload JSONB;
