@@ -10,6 +10,7 @@ interface Campaign {
   image_url: string | null;
   promo_code: string | null;
   external_link: string | null;
+  target_audience: string;
 }
 
 interface SponsorCarouselProps {
@@ -23,7 +24,7 @@ export default function SponsorCarousel({ variant = 'dashboard' }: SponsorCarous
 
   useEffect(() => {
     loadCampaigns();
-  }, []);
+  }, [variant]);
 
   useEffect(() => {
     if (campaigns.length <= 1) return;
@@ -34,11 +35,18 @@ export default function SponsorCarousel({ variant = 'dashboard' }: SponsorCarous
   }, [campaigns.length]);
 
   async function loadCampaigns() {
-    const { data } = await supabase
+    let query = supabase
       .from('campaigns')
-      .select('id, title, sponsor_name, discount_rate, image_url, promo_code, external_link')
-      .eq('status', true)
-      .order('created_at', { ascending: false });
+      .select('id, title, sponsor_name, discount_rate, image_url, promo_code, external_link, target_audience')
+      .eq('status', true);
+
+    if (variant === 'login') {
+      query = query.eq('target_audience', 'Public_Login');
+    } else {
+      query = query.in('target_audience', ['All_Logged_In_Users', 'Fleet_Admins_Only']);
+    }
+
+    const { data } = await query.order('created_at', { ascending: false });
     setCampaigns(data || []);
   }
 

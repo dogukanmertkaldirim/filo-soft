@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   Megaphone, Plus, Pencil, Trash2, Eye, EyeOff, ExternalLink,
-  Bell, AlertTriangle, Info, Tag, Users, User, X, Save
+  Bell, AlertTriangle, Info, Tag, Users, X, Shield, Building2
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -17,6 +17,7 @@ interface Campaign {
   image_url: string | null;
   promo_code: string | null;
   external_link: string | null;
+  target_audience: string;
   status: boolean;
   created_at: string;
 }
@@ -28,6 +29,8 @@ interface Announcement {
   content: string;
   target_audience: string;
   specific_tenant_id: string | null;
+  tenant_id: string | null;
+  created_by: string | null;
   action_link: string | null;
   is_active: boolean;
   created_at: string;
@@ -40,15 +43,16 @@ interface Customer {
 
 export default function Campaigns() {
   const { user, effectiveCompanyId: companyId } = useAuth();
-  const [tab, setTab] = useState<'campaigns' | 'announcements'>('campaigns');
+  const isSuperAdmin = user?.role === 'super_admin';
+  const [tab, setTab] = useState<'campaigns' | 'announcements'>(isSuperAdmin ? 'campaigns' : 'announcements');
 
-  // Campaign state
+  // Campaign state (Super Admin only)
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [showCampaignModal, setShowCampaignModal] = useState(false);
   const [editCampaign, setEditCampaign] = useState<Campaign | null>(null);
   const [campaignForm, setCampaignForm] = useState({
     title: '', sponsor_name: '', discount_rate: '', image_url: '',
-    promo_code: '', external_link: '', status: true,
+    promo_code: '', external_link: '', status: true, target_audience: 'Public_Login',
   });
 
   // Announcement state
@@ -56,7 +60,7 @@ export default function Campaigns() {
   const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
   const [editAnnouncement, setEditAnnouncement] = useState<Announcement | null>(null);
   const [announcementForm, setAnnouncementForm] = useState({
-    type: 'Info', title: '', content: '', target_audience: 'All',
+    type: 'Info', title: '', content: '', target_audience: isSuperAdmin ? 'Fleet_Admins' : 'Tenants',
     specific_tenant_id: '', action_link: '', is_active: true,
   });
 
@@ -64,11 +68,9 @@ export default function Campaigns() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (companyId) {
-      loadCampaigns();
-      loadAnnouncements();
-      loadCustomers();
-    }
+    if (isSuperAdmin) loadCampaigns();
+    loadAnnouncements();
+    loadCustomers();
   }, [companyId]);
 
   async function loadCampaigns() {
@@ -80,14 +82,16 @@ export default function Campaigns() {
   }
 
   async function loadAnnouncements() {
-    const { data } = await supabase
-      .from('announcements')
-      .select('*')
-      .order('created_at', { ascending: false });
+    let query = supabase.from('announcements').select('*');
+    if (!isSuperAdmin) {
+      query = query.eq('tenant_id', companyId);
+    }
+    const { data } = await query.order('created_at', { ascending: false });
     setAnnouncements(data || []);
   }
 
   async function loadCustomers() {
+    if (!companyId) return;
     const { data } = await supabase
       .from('customers')
       .select('id, name')
@@ -97,12 +101,12 @@ export default function Campaigns() {
     setCustomers(data || []);
   }
 
-  // Campaign CRUD
+  // Campaign CRUD (Super Admin only)
   function openNewCampaign() {
     setEditCampaign(null);
     setCampaignForm({
       title: '', sponsor_name: '', discount_rate: '', image_url: '',
-      promo_code: '', external_link: '', status: true,
+      promo_code: '', external_link: '', status: true, target_audience: 'Public_Login',
     });
     setShowCampaignModal(true);
   }
@@ -117,6 +121,7 @@ export default function Campaigns() {
       promo_code: c.promo_code || '',
       external_link: c.external_link || '',
       status: c.status,
+      target_audience: c.target_audience || 'Public_Login',
     });
     setShowCampaignModal(true);
   }
@@ -125,12 +130,15 @@ export default function Campaigns() {
     if (!campaignForm.title || !campaignForm.sponsor_name) return;
     setSaving(true);
     const payload = {
-      ...campaignForm,
-      company_id: companyId,
+      title: campaignForm.title,
+      sponsor_name: campaignForm.sponsor_name,
       discount_rate: campaignForm.discount_rate || null,
       image_url: campaignForm.image_url || null,
       promo_code: campaignForm.promo_code || null,
       external_link: campaignForm.external_link || null,
+      status: campaignForm.status,
+      target_audience: campaignForm.target_audience,
+      company_id: companyId,
     };
 
     if (editCampaign) {
@@ -158,7 +166,8 @@ export default function Campaigns() {
   function openNewAnnouncement() {
     setEditAnnouncement(null);
     setAnnouncementForm({
-      type: 'Info', title: '', content: '', target_audience: 'All',
+      type: 'Info', title: '', content: '',
+      target_audience: isSuperAdmin ? 'Fleet_Admins' : 'Tenants',
       specific_tenant_id: '', action_link: '', is_active: true,
     });
     setShowAnnouncementModal(true);
@@ -182,10 +191,16 @@ export default function Campaigns() {
     if (!announcementForm.title || !announcementForm.content) return;
     setSaving(true);
     const payload = {
-      ...announcementForm,
-      company_id: companyId,
+      type: announcementForm.type,
+      title: announcementForm.title,
+      content: announcementForm.content,
+      target_audience: announcementForm.target_audience,
       specific_tenant_id: announcementForm.specific_tenant_id || null,
       action_link: announcementForm.action_link || null,
+      is_active: announcementForm.is_active,
+      company_id: companyId,
+      tenant_id: isSuperAdmin ? null : companyId,
+      created_by: user?.id || null,
     };
 
     if (editAnnouncement) {
@@ -223,32 +238,58 @@ export default function Campaigns() {
 
   const audienceLabels: Record<string, string> = {
     All: 'Herkes',
-    Tenants: 'Musteriler',
+    Tenants: 'Musteriler (Kiracılar)',
     Drivers: 'Suruculer',
     Specific_Tenant: 'Belirli Musteri',
+    Fleet_Admins: 'Filo Yoneticileri',
   };
+
+  const campaignAudienceLabels: Record<string, string> = {
+    Public_Login: 'Giris Ekrani (Herkese Acik)',
+    Fleet_Admins_Only: 'Sadece Filo Yoneticileri',
+    All_Logged_In_Users: 'Tum Giris Yapmis Kullanicilar',
+  };
+
+  // Available target audiences based on role
+  const availableAnnouncementAudiences = isSuperAdmin
+    ? ['Fleet_Admins', 'All', 'Tenants', 'Drivers', 'Specific_Tenant']
+    : ['Tenants', 'Drivers', 'Specific_Tenant'];
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Kampanya & Bildirimler</h1>
-          <p className="text-sm text-slate-500 mt-1">Sponsor kampanyalari ve hedefli bildirimleri yonetin</p>
+          <h1 className="text-2xl font-bold text-slate-900">
+            {isSuperAdmin ? 'Kampanya & Bildirimler' : 'Musteri Bildirimleri'}
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">
+            {isSuperAdmin
+              ? 'Global sponsor kampanyalari ve hedefli bildirimleri yonetin'
+              : 'Musterilerinize ve suruculere ozel bildirimler gonderın'}
+          </p>
         </div>
+        {isSuperAdmin && (
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg">
+            <Shield className="h-4 w-4 text-amber-600" />
+            <span className="text-xs font-medium text-amber-700">Platform Yoneticisi</span>
+          </div>
+        )}
       </div>
 
       {/* Tab Switcher */}
       <div className="flex bg-white rounded-xl border border-slate-200 p-1 max-w-md">
-        <button
-          onClick={() => setTab('campaigns')}
-          className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${
-            tab === 'campaigns' ? 'bg-teal-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <Tag className="h-4 w-4" />
-          Kampanyalar
-        </button>
+        {isSuperAdmin && (
+          <button
+            onClick={() => setTab('campaigns')}
+            className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+              tab === 'campaigns' ? 'bg-teal-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Tag className="h-4 w-4" />
+            Global Kampanyalar
+          </button>
+        )}
         <button
           onClick={() => setTab('announcements')}
           className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${
@@ -256,14 +297,15 @@ export default function Campaigns() {
           }`}
         >
           <Bell className="h-4 w-4" />
-          Bildirimler
+          {isSuperAdmin ? 'Bildirimler' : 'Bildirimlerim'}
         </button>
       </div>
 
-      {/* Campaigns Tab */}
-      {tab === 'campaigns' && (
+      {/* Campaigns Tab - Super Admin Only */}
+      {tab === 'campaigns' && isSuperAdmin && (
         <div className="space-y-4">
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-slate-500">Giris ekraninda ve dashboardlarda gorunen sponsor kampanyalari</p>
             <Button onClick={openNewCampaign}>
               <Plus className="h-4 w-4 mr-2" />
               Yeni Kampanya
@@ -286,6 +328,12 @@ export default function Campaigns() {
                     </div>
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${c.status ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
                       {c.status ? 'Aktif' : 'Pasif'}
+                    </span>
+                  </div>
+
+                  <div className="mb-3">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-200">
+                      {campaignAudienceLabels[c.target_audience] || c.target_audience}
                     </span>
                   </div>
 
@@ -327,7 +375,12 @@ export default function Campaigns() {
       {/* Announcements Tab */}
       {tab === 'announcements' && (
         <div className="space-y-4">
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-slate-500">
+              {isSuperAdmin
+                ? 'Filo yoneticilerine ve tum kullanicilara hedefli bildirimler'
+                : 'Kiracılariniza ve suruculere gonderilen bildirimler'}
+            </p>
             <Button onClick={openNewAnnouncement}>
               <Plus className="h-4 w-4 mr-2" />
               Yeni Bildirim
@@ -347,7 +400,7 @@ export default function Campaigns() {
                     {a.type === 'Payment_Warning' ? <AlertTriangle className="h-4 w-4" /> : <Info className="h-4 w-4" />}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <h3 className="font-semibold text-slate-900 text-sm">{a.title}</h3>
                       <span className={`px-2 py-0.5 rounded-full text-xs border ${typeColors[a.type]}`}>
                         {typeLabels[a.type]}
@@ -382,66 +435,80 @@ export default function Campaigns() {
         </div>
       )}
 
-      {/* Campaign Modal */}
-      <Modal
-        isOpen={showCampaignModal}
-        onClose={() => setShowCampaignModal(false)}
-        title={editCampaign ? 'Kampanya Duzenle' : 'Yeni Kampanya Ekle'}
-      >
-        <div className="space-y-4">
-          <Input
-            label="Kampanya Basligi *"
-            value={campaignForm.title}
-            onChange={(e) => setCampaignForm(f => ({ ...f, title: e.target.value }))}
-            placeholder="Ornek: Arvento'da %25 Indirim"
-          />
-          <Input
-            label="Sponsor Adi *"
-            value={campaignForm.sponsor_name}
-            onChange={(e) => setCampaignForm(f => ({ ...f, sponsor_name: e.target.value }))}
-            placeholder="Ornek: Arvento Telematics"
-          />
-          <Input
-            label="Indirim Orani"
-            value={campaignForm.discount_rate}
-            onChange={(e) => setCampaignForm(f => ({ ...f, discount_rate: e.target.value }))}
-            placeholder="Ornek: %25 Indirim"
-          />
-          <Input
-            label="Logo / Gorsel URL"
-            value={campaignForm.image_url}
-            onChange={(e) => setCampaignForm(f => ({ ...f, image_url: e.target.value }))}
-            placeholder="https://..."
-          />
-          <Input
-            label="Promosyon Kodu"
-            value={campaignForm.promo_code}
-            onChange={(e) => setCampaignForm(f => ({ ...f, promo_code: e.target.value }))}
-            placeholder="FILOSOFT25"
-          />
-          <Input
-            label="Harici Baglanti"
-            value={campaignForm.external_link}
-            onChange={(e) => setCampaignForm(f => ({ ...f, external_link: e.target.value }))}
-            placeholder="https://partner.com/kampanya"
-          />
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={campaignForm.status}
-              onChange={(e) => setCampaignForm(f => ({ ...f, status: e.target.checked }))}
-              className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+      {/* Campaign Modal - Super Admin Only */}
+      {isSuperAdmin && (
+        <Modal
+          isOpen={showCampaignModal}
+          onClose={() => setShowCampaignModal(false)}
+          title={editCampaign ? 'Kampanya Duzenle' : 'Yeni Global Kampanya'}
+        >
+          <div className="space-y-4">
+            <Input
+              label="Kampanya Basligi *"
+              value={campaignForm.title}
+              onChange={(e) => setCampaignForm(f => ({ ...f, title: e.target.value }))}
+              placeholder="Ornek: Arvento'da %25 Indirim"
             />
-            <span className="text-sm text-slate-700">Aktif (Login ve Dashboard'da gorunur)</span>
-          </label>
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="secondary" onClick={() => setShowCampaignModal(false)}>Iptal</Button>
-            <Button onClick={saveCampaign} disabled={saving || !campaignForm.title || !campaignForm.sponsor_name}>
-              {saving ? 'Kaydediliyor...' : 'Kaydet'}
-            </Button>
+            <Input
+              label="Sponsor Adi *"
+              value={campaignForm.sponsor_name}
+              onChange={(e) => setCampaignForm(f => ({ ...f, sponsor_name: e.target.value }))}
+              placeholder="Ornek: Arvento Telematics"
+            />
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Hedef Kitle *</label>
+              <select
+                value={campaignForm.target_audience}
+                onChange={(e) => setCampaignForm(f => ({ ...f, target_audience: e.target.value }))}
+                className="w-full rounded-lg border-slate-300 text-sm focus:border-teal-500 focus:ring-teal-500"
+              >
+                <option value="Public_Login">Giris Ekrani (Herkese Acik)</option>
+                <option value="Fleet_Admins_Only">Sadece Filo Yoneticileri</option>
+                <option value="All_Logged_In_Users">Tum Giris Yapmis Kullanicilar</option>
+              </select>
+            </div>
+            <Input
+              label="Indirim Orani"
+              value={campaignForm.discount_rate}
+              onChange={(e) => setCampaignForm(f => ({ ...f, discount_rate: e.target.value }))}
+              placeholder="Ornek: %25 Indirim"
+            />
+            <Input
+              label="Logo / Gorsel URL"
+              value={campaignForm.image_url}
+              onChange={(e) => setCampaignForm(f => ({ ...f, image_url: e.target.value }))}
+              placeholder="https://..."
+            />
+            <Input
+              label="Promosyon Kodu"
+              value={campaignForm.promo_code}
+              onChange={(e) => setCampaignForm(f => ({ ...f, promo_code: e.target.value }))}
+              placeholder="FILOSOFT25"
+            />
+            <Input
+              label="Harici Baglanti"
+              value={campaignForm.external_link}
+              onChange={(e) => setCampaignForm(f => ({ ...f, external_link: e.target.value }))}
+              placeholder="https://partner.com/kampanya"
+            />
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={campaignForm.status}
+                onChange={(e) => setCampaignForm(f => ({ ...f, status: e.target.checked }))}
+                className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+              />
+              <span className="text-sm text-slate-700">Aktif</span>
+            </label>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="secondary" onClick={() => setShowCampaignModal(false)}>Iptal</Button>
+              <Button onClick={saveCampaign} disabled={saving || !campaignForm.title || !campaignForm.sponsor_name}>
+                {saving ? 'Kaydediliyor...' : 'Kaydet'}
+              </Button>
+            </div>
           </div>
-        </div>
-      </Modal>
+        </Modal>
+      )}
 
       {/* Announcement Modal */}
       <Modal
@@ -488,10 +555,9 @@ export default function Campaigns() {
               onChange={(e) => setAnnouncementForm(f => ({ ...f, target_audience: e.target.value }))}
               className="w-full rounded-lg border-slate-300 text-sm focus:border-teal-500 focus:ring-teal-500"
             >
-              <option value="All">Herkes</option>
-              <option value="Tenants">Sadece Musteriler</option>
-              <option value="Drivers">Sadece Suruculer</option>
-              <option value="Specific_Tenant">Belirli Bir Musteri</option>
+              {availableAnnouncementAudiences.map(a => (
+                <option key={a} value={a}>{audienceLabels[a]}</option>
+              ))}
             </select>
           </div>
 
@@ -525,7 +591,7 @@ export default function Campaigns() {
               onChange={(e) => setAnnouncementForm(f => ({ ...f, is_active: e.target.checked }))}
               className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
             />
-            <span className="text-sm text-slate-700">Aktif (Kullanicilara gosterilsin)</span>
+            <span className="text-sm text-slate-700">Aktif</span>
           </label>
 
           <div className="flex justify-end gap-3 pt-2">

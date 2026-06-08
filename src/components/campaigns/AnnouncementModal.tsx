@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { AlertTriangle, Info, X, ExternalLink, Bell } from 'lucide-react';
+import { AlertTriangle, Info, X, ExternalLink } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import Button from '../ui/Button';
@@ -11,11 +11,12 @@ interface Announcement {
   content: string;
   target_audience: string;
   specific_tenant_id: string | null;
+  tenant_id: string | null;
   action_link: string | null;
 }
 
 export default function AnnouncementModal() {
-  const { user } = useAuth();
+  const { user, effectiveCompanyId: companyId } = useAuth();
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [visible, setVisible] = useState(false);
@@ -29,22 +30,60 @@ export default function AnnouncementModal() {
   async function loadAnnouncements() {
     const { data } = await supabase
       .from('announcements')
-      .select('id, type, title, content, target_audience, specific_tenant_id, action_link')
+      .select('id, type, title, content, target_audience, specific_tenant_id, tenant_id, action_link')
       .eq('is_active', true)
       .order('created_at', { ascending: false });
 
     if (!data || data.length === 0) return;
 
     const userRole = user?.role;
+    const userId = user?.id;
+
     const relevantAnnouncements = data.filter(a => {
-      if (a.target_audience === 'All') return true;
-      if (a.target_audience === 'Tenants' && userRole === 'customer') return true;
-      if (a.target_audience === 'Drivers' && userRole === 'driver') return true;
-      if (a.target_audience === 'Specific_Tenant' && a.specific_tenant_id === user?.id) return true;
-      if (a.target_audience === 'Tenants' && (userRole === 'admin' || userRole === 'super_admin')) return true;
+      // Super Admin: only see announcements meant for testing/preview (none typically)
+      if (userRole === 'super_admin') return false;
+
+      // Fleet Admin (admin role): see announcements from Super Admin targeted at Fleet_Admins
+      if (userRole === 'admin') {
+        if (a.target_audience === 'Fleet_Admins' && !a.tenant_id) return true;
+        if (a.target_audience === 'All' && !a.tenant_id) return true;
+        return false;
+      }
+
+      // Customer (Tenant/Renter): see global "All" from Super Admin + local from their Fleet Admin
+      if (userRole === 'customer') {
+        // Global announcements from Super Admin
+        if (a.target_audience === 'All' && !a.tenant_id) return true;
+        // Local announcements from their Fleet Admin
+        if (a.tenant_id === companyId) {
+          if (a.target_audience === 'Tenants') return true;
+          if (a.target_audience === 'Specific_Tenant' && a.specific_tenant_id === userId) return true;
+          if (a.target_audience === 'All') return true;
+        }
+        return false;
+      }
+
+      // Driver: see global "All" + local from their Fleet Admin targeting drivers
+      if (userRole === 'driver') {
+        if (a.target_audience === 'All' && !a.tenant_id) return true;
+        if (a.tenant_id === companyId) {
+          if (a.target_audience === 'Drivers') return true;
+          if (a.target_audience === 'All') return true;
+        }
+        return false;
+      }
+
+      // Staff: see all from their company
+      if (userRole === 'staff') {
+        if (a.target_audience === 'All' && !a.tenant_id) return true;
+        if (a.tenant_id === companyId) return true;
+        return false;
+      }
+
       return false;
     });
 
+    // Filter out already-seen non-critical announcements using localStorage
     const unseenAnnouncements = relevantAnnouncements.filter(a => {
       if (a.type === 'Payment_Warning') return true;
       const key = `hasSeenAnnouncement_${a.id}`;
@@ -99,13 +138,11 @@ export default function AnnouncementModal() {
       />
 
       {/* Modal */}
-      <div className={`relative w-full max-w-md rounded-2xl shadow-2xl transform transition-all animate-in fade-in zoom-in-95 ${
+      <div className={`relative w-full max-w-md rounded-2xl shadow-2xl transform transition-all ${
         isPaymentWarning ? 'bg-white border-2 border-red-300' : 'bg-white border border-slate-200'
       }`}>
-        {/* Header Strip */}
-        <div className={`px-6 pt-5 pb-3 flex items-start gap-3 ${
-          isPaymentWarning ? '' : ''
-        }`}>
+        {/* Header */}
+        <div className="px-6 pt-5 pb-3 flex items-start gap-3">
           <div className={`p-2.5 rounded-xl flex-shrink-0 ${
             isPaymentWarning
               ? 'bg-red-100 text-red-600'
