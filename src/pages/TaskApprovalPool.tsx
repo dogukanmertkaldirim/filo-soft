@@ -130,7 +130,8 @@ export default function TaskApprovalPool() {
       .from('app_users')
       .select('id, full_name')
       .eq('company_id', companyId)
-      .eq('role', 'DMK_Employee')
+      .eq('role', 'driver')
+      .eq('driver_type', 'employee')
       .order('full_name');
     setDrivers(data || []);
   }
