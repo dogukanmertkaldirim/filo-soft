@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Plus, CreditCard as Edit2, Trash2, Search, Car, FileText, History, Download, Wallet, TrendingUp, TrendingDown, FileSpreadsheet, Eye, FileDown, AlertTriangle, Receipt, Shield, Mail, Printer, Wrench, RotateCcw, ChevronUp, ChevronDown, MapPin, X, ZoomIn, UserPlus, Building, Key, ChevronRight, ChevronLeft, Check, PlayCircle, CreditCard, Info, Camera, Fuel, Droplets, Upload, Settings2 } from 'lucide-react';
+import { Plus, CreditCard as Edit2, Trash2, Search, Car, FileText, History, Download, Wallet, TrendingUp, TrendingDown, FileSpreadsheet, Eye, FileDown, AlertTriangle, Receipt, Shield, Mail, Printer, Wrench, RotateCcw, ChevronUp, ChevronDown, MapPin, X, ZoomIn, UserPlus, Building, Key, ChevronRight, ChevronLeft, Check, PlayCircle, CreditCard, Info, Camera, Fuel, Droplets, Upload, Settings2, Gauge, Columns2 as Columns } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import type { Vehicle, Customer, Rental, RentalExpense, Accident, CompanyProfile, Loan, Maintenance, Supplier, VehicleSale, AppUser, ServiceDetails } from '../types/database';
 import MaintenanceDetailsView from '../components/maintenance/MaintenanceDetailsView';
@@ -361,6 +361,89 @@ export default function Vehicles() {
   const [importResult, setImportResult] = useState<{ success: number; errors: string[] } | null>(null);
   const excelMenuRef = useRef<HTMLDivElement>(null);
 
+  // KM Update Modal
+  const [showKmModal, setShowKmModal] = useState(false);
+  const [kmVehicle, setKmVehicle] = useState<Vehicle | null>(null);
+  const [kmInput, setKmInput] = useState<string>('');
+  const [kmError, setKmError] = useState('');
+  const [kmSaving, setKmSaving] = useState(false);
+
+  // Column Visibility
+  const COLUMN_STORAGE_KEY = 'vehicles_column_visibility';
+  type ColumnKey = 'photo' | 'plate' | 'brand_model' | 'year' | 'current_km' | 'status' | 'customer' | 'start_date' | 'end_date' | 'monthly_income' | 'loan_amount' | 'actions';
+  const ALL_COLUMNS: { key: ColumnKey; label: string }[] = [
+    { key: 'photo', label: 'Foto' },
+    { key: 'plate', label: 'Plaka' },
+    { key: 'brand_model', label: 'Marka/Model' },
+    { key: 'year', label: 'Yil' },
+    { key: 'current_km', label: 'Guncel KM' },
+    { key: 'status', label: 'Durum' },
+    { key: 'customer', label: 'Musteri' },
+    { key: 'start_date', label: 'Baslangic Tarihi' },
+    { key: 'end_date', label: 'Bitis Tarihi' },
+    { key: 'monthly_income', label: 'Aylik Getiri' },
+    { key: 'loan_amount', label: 'Kredi Odemesi' },
+    { key: 'actions', label: 'Islemler' },
+  ];
+
+  const [columnVisibility, setColumnVisibility] = useState<Record<ColumnKey, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem(COLUMN_STORAGE_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return Object.fromEntries(ALL_COLUMNS.map(c => [c.key, true])) as Record<ColumnKey, boolean>;
+  });
+  const [showColumnMenu, setShowColumnMenu] = useState(false);
+  const columnMenuRef = useRef<HTMLDivElement>(null);
+
+  function toggleColumn(key: ColumnKey) {
+    setColumnVisibility(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
+
+  function isColVisible(key: ColumnKey): boolean {
+    return columnVisibility[key] !== false;
+  }
+
+  async function handleKmUpdate() {
+    if (!kmVehicle) return;
+    const newKm = parseInt(kmInput);
+    if (isNaN(newKm) || newKm <= 0) {
+      setKmError('Gecerli bir kilometre degeri giriniz.');
+      return;
+    }
+    const currentKm = kmVehicle.current_km || 0;
+    if (newKm < currentKm) {
+      setKmError(`Hata: Girilen deger mevcut kilometreden (${currentKm.toLocaleString('tr-TR')} km) dusuk olamaz!`);
+      return;
+    }
+    setKmSaving(true);
+    setKmError('');
+    const { error } = await supabase
+      .from('vehicles')
+      .update({ current_km: newKm })
+      .eq('id', kmVehicle.id);
+    setKmSaving(false);
+    if (error) {
+      setKmError('Guncelleme sirasinda bir hata olustu.');
+      return;
+    }
+    setShowKmModal(false);
+    setKmVehicle(null);
+    setKmInput('');
+    loadVehicles();
+  }
+
+  function openKmModal(v: Vehicle) {
+    setKmVehicle(v);
+    setKmInput('');
+    setKmError('');
+    setShowKmModal(true);
+  }
+
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (excelMenuRef.current && !excelMenuRef.current.contains(e.target as Node)) {
@@ -372,6 +455,18 @@ export default function Vehicles() {
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [showExcelMenu]);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (columnMenuRef.current && !columnMenuRef.current.contains(e.target as Node)) {
+        setShowColumnMenu(false);
+      }
+    }
+    if (showColumnMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showColumnMenu]);
 
   useEffect(() => {
     const statusParam = searchParams.get('status');
@@ -1944,6 +2039,33 @@ export default function Vehicles() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-slate-900">Araclar</h1>
         <div className="flex items-center gap-3">
+          <div className="relative" ref={columnMenuRef}>
+            <Button
+              variant="secondary"
+              onClick={() => setShowColumnMenu(!showColumnMenu)}
+            >
+              <Columns className="h-4 w-4 mr-2" />
+              Sutunlari Yonet
+            </Button>
+            {showColumnMenu && (
+              <div className="absolute right-0 top-full mt-1 w-64 bg-white rounded-xl shadow-lg border border-slate-200 z-50 py-2 px-3">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-1 mb-2">Gorunur Sutunlar</p>
+                <div className="space-y-1 max-h-72 overflow-y-auto">
+                  {ALL_COLUMNS.map(col => (
+                    <label key={col.key} className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={columnVisibility[col.key] !== false}
+                        onChange={() => toggleColumn(col.key)}
+                        className="w-4 h-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                      />
+                      <span className="text-sm text-slate-700">{col.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
           <Button variant="secondary" onClick={handleExportVehicles}>
             <FileSpreadsheet className="h-4 w-4 mr-2" />
             Filo Master Rapor
@@ -2149,7 +2271,8 @@ export default function Vehicles() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">
-                  <th className="text-left py-3 px-4 font-medium text-slate-600">Foto</th>
+                  {isColVisible('photo') && <th className="text-left py-3 px-4 font-medium text-slate-600">Foto</th>}
+                  {isColVisible('plate') && (
                   <th
                     className="text-left py-3 px-4 font-medium text-slate-600 cursor-pointer hover:bg-slate-100 select-none transition-colors"
                     onClick={() => handleSort('plate')}
@@ -2161,6 +2284,8 @@ export default function Vehicles() {
                       </span>
                     </div>
                   </th>
+                  )}
+                  {isColVisible('brand_model') && (
                   <th
                     className="text-left py-3 px-4 font-medium text-slate-600 cursor-pointer hover:bg-slate-100 select-none transition-colors"
                     onClick={() => handleSort('brand')}
@@ -2172,17 +2297,29 @@ export default function Vehicles() {
                       </span>
                     </div>
                   </th>
+                  )}
+                  {isColVisible('year') && (
                   <th
                     className="text-center py-3 px-4 font-medium text-slate-600 cursor-pointer hover:bg-slate-100 select-none transition-colors"
                     onClick={() => handleSort('year')}
                   >
                     <div className="flex items-center justify-center gap-1">
-                      Yıl
+                      Yil
                       <span className={`inline-flex ${sortField === 'year' ? 'text-teal-600' : 'text-slate-300'}`}>
                         {sortField === 'year' && sortDirection === 'asc' ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                       </span>
                     </div>
                   </th>
+                  )}
+                  {isColVisible('current_km') && (
+                  <th className="text-right py-3 px-4 font-medium text-slate-600">
+                    <div className="flex items-center justify-end gap-1">
+                      <Gauge className="h-3.5 w-3.5" />
+                      Guncel KM
+                    </div>
+                  </th>
+                  )}
+                  {isColVisible('status') && (
                   <th
                     className="text-left py-3 px-4 font-medium text-slate-600 cursor-pointer hover:bg-slate-100 select-none transition-colors"
                     onClick={() => handleSort('status')}
@@ -2194,67 +2331,79 @@ export default function Vehicles() {
                       </span>
                     </div>
                   </th>
+                  )}
+                  {isColVisible('customer') && (
                   <th
                     className="text-left py-3 px-4 font-medium text-slate-600 cursor-pointer hover:bg-slate-100 select-none transition-colors"
                     onClick={() => handleSort('customer')}
                   >
                     <div className="flex items-center gap-1">
-                      Müşteri
+                      Musteri
                       <span className={`inline-flex ${sortField === 'customer' ? 'text-teal-600' : 'text-slate-300'}`}>
                         {sortField === 'customer' && sortDirection === 'asc' ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                       </span>
                     </div>
                   </th>
+                  )}
+                  {isColVisible('start_date') && (
                   <th
                     className="text-left py-3 px-4 font-medium text-slate-600 cursor-pointer hover:bg-slate-100 select-none transition-colors"
                     onClick={() => handleSort('start_date')}
                   >
                     <div className="flex items-center gap-1">
-                      Başlangıç Tarihi
+                      Baslangic Tarihi
                       <span className={`inline-flex ${sortField === 'start_date' ? 'text-teal-600' : 'text-slate-300'}`}>
                         {sortField === 'start_date' && sortDirection === 'asc' ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                       </span>
                     </div>
                   </th>
+                  )}
+                  {isColVisible('end_date') && (
                   <th
                     className="text-left py-3 px-4 font-medium text-slate-600 cursor-pointer hover:bg-slate-100 select-none transition-colors"
                     onClick={() => handleSort('end_date')}
                   >
                     <div className="flex items-center gap-1">
-                      Bitiş Tarihi
+                      Bitis Tarihi
                       <span className={`inline-flex ${sortField === 'end_date' ? 'text-teal-600' : 'text-slate-300'}`}>
                         {sortField === 'end_date' && sortDirection === 'asc' ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                       </span>
                     </div>
                   </th>
+                  )}
+                  {isColVisible('monthly_income') && (
                   <th
                     className="text-right py-3 px-4 font-medium text-slate-600 cursor-pointer hover:bg-slate-100 select-none transition-colors"
                     onClick={() => handleSort('monthly_income')}
                   >
                     <div className="flex items-center justify-end gap-1">
-                      Aylık Getiri
+                      Aylik Getiri
                       <span className={`inline-flex ${sortField === 'monthly_income' ? 'text-teal-600' : 'text-slate-300'}`}>
                         {sortField === 'monthly_income' && sortDirection === 'asc' ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                       </span>
                     </div>
                   </th>
+                  )}
+                  {isColVisible('loan_amount') && (
                   <th
                     className="text-right py-3 px-4 font-medium text-slate-600 cursor-pointer hover:bg-slate-100 select-none transition-colors"
                     onClick={() => handleSort('loan_amount')}
                   >
                     <div className="flex items-center justify-end gap-1">
-                      Kredi Ödemesi
+                      Kredi Odemesi
                       <span className={`inline-flex ${sortField === 'loan_amount' ? 'text-teal-600' : 'text-slate-300'}`}>
                         {sortField === 'loan_amount' && sortDirection === 'asc' ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                       </span>
                     </div>
                   </th>
-                  <th className="text-center py-3 px-4 font-medium text-slate-600">İşlemler</th>
+                  )}
+                  {isColVisible('actions') && <th className="text-center py-3 px-4 font-medium text-slate-600">Islemler</th>}
                 </tr>
               </thead>
               <tbody>
                 {filteredVehicles.map((v) => (
                   <tr key={v.id} className="border-b border-slate-100 hover:bg-slate-50">
+                    {isColVisible('photo') && (
                     <td className="py-3 px-4">
                       {v.photo_url ? (
                         <button
@@ -2282,9 +2431,20 @@ export default function Vehicles() {
                         </div>
                       )}
                     </td>
-                    <td className="py-3 px-4 font-medium">{v.plate}</td>
-                    <td className="py-3 px-4">{v.brand} {v.model}</td>
-                    <td className="py-3 px-4 text-center text-slate-600">{v.year || '-'}</td>
+                    )}
+                    {isColVisible('plate') && <td className="py-3 px-4 font-medium">{v.plate}</td>}
+                    {isColVisible('brand_model') && <td className="py-3 px-4">{v.brand} {v.model}</td>}
+                    {isColVisible('year') && <td className="py-3 px-4 text-center text-slate-600">{v.year || '-'}</td>}
+                    {isColVisible('current_km') && (
+                    <td className="py-3 px-4 text-right">
+                      {v.current_km ? (
+                        <span className="text-slate-700 font-medium">{v.current_km.toLocaleString('tr-TR')} km</span>
+                      ) : (
+                        <span className="text-slate-400">-</span>
+                      )}
+                    </td>
+                    )}
+                    {isColVisible('status') && (
                     <td className="py-3 px-4">
                       <div className="flex flex-wrap gap-1">
                         <span
@@ -2311,6 +2471,8 @@ export default function Vehicles() {
                         </span>
                       </div>
                     </td>
+                    )}
+                    {isColVisible('customer') && (
                     <td className="py-3 px-4 text-xs">
                       {(() => {
                         const rental = rentals.find(r => r.vehicle_id === v.id);
@@ -2321,18 +2483,24 @@ export default function Vehicles() {
                         return <span className="text-slate-400">-</span>;
                       })()}
                     </td>
+                    )}
+                    {isColVisible('start_date') && (
                     <td className="py-3 px-4 text-xs">
                       {(() => {
                         const rental = rentals.find(r => r.vehicle_id === v.id);
                         return rental ? formatDate(rental.start_date) : <span className="text-slate-400">-</span>;
                       })()}
                     </td>
+                    )}
+                    {isColVisible('end_date') && (
                     <td className="py-3 px-4 text-xs">
                       {(() => {
                         const rental = rentals.find(r => r.vehicle_id === v.id);
                         return rental ? formatDate(rental.end_date) : <span className="text-slate-400">-</span>;
                       })()}
                     </td>
+                    )}
+                    {isColVisible('monthly_income') && (
                     <td className="py-3 px-4 text-right">
                       {(() => {
                         const rental = rentals.find(r => r.vehicle_id === v.id);
@@ -2343,6 +2511,8 @@ export default function Vehicles() {
                         return <span className="text-slate-400">-</span>;
                       })()}
                     </td>
+                    )}
+                    {isColVisible('loan_amount') && (
                     <td className="py-3 px-4 text-right">
                       {(() => {
                         const vehicleLoans = loans.filter(l => l.vehicle_id === v.id && l.remaining_debt > 0);
@@ -2353,6 +2523,8 @@ export default function Vehicles() {
                         return <span className="text-slate-400">-</span>;
                       })()}
                     </td>
+                    )}
+                    {isColVisible('actions') && (
                     <td className="py-3 px-4">
                       <div className="flex items-center justify-center">
                         {viewMode === 'active' ? (
@@ -2377,6 +2549,7 @@ export default function Vehicles() {
                         )}
                       </div>
                     </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -6033,6 +6206,7 @@ export default function Vehicles() {
           onToggleKabis={toggleKabisStatus}
           onViewRentalDetail={openRentalDetail}
           onSell={openSaleForm}
+          onUpdateKm={openKmModal}
           hasLinkedCustomer={customerUsers.some(u => u.linked_vehicle_ids?.includes(actionsModalVehicle.id))}
           hasCustomerUsers={customerUsers.length > 0}
         />
@@ -6287,6 +6461,53 @@ export default function Vehicles() {
               className="flex-1 bg-amber-600 hover:bg-amber-700"
             >
               Satisi Tamamla
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* KM Update Modal */}
+      <Modal
+        isOpen={showKmModal}
+        onClose={() => { setShowKmModal(false); setKmVehicle(null); setKmError(''); }}
+        title={`Guncel KM Guncelle: ${kmVehicle?.plate || ''}`}
+      >
+        <div className="space-y-4">
+          {kmVehicle && (
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <div className="flex items-center gap-3">
+                <Gauge className="h-5 w-5 text-slate-500" />
+                <div>
+                  <p className="text-sm font-medium text-slate-900">{kmVehicle.brand} {kmVehicle.model} ({kmVehicle.year})</p>
+                  <p className="text-xs text-slate-500">
+                    Mevcut KM: <span className="font-semibold text-slate-700">{(kmVehicle.current_km || 0).toLocaleString('tr-TR')} km</span>
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <Input
+            label="Yeni Kilometre Degeri *"
+            type="number"
+            value={kmInput}
+            onChange={(e) => { setKmInput(e.target.value); setKmError(''); }}
+            placeholder="Ornek: 48500"
+          />
+
+          {kmError && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+              <p className="text-sm text-red-700">{kmError}</p>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2">
+            <Button variant="secondary" onClick={() => { setShowKmModal(false); setKmVehicle(null); setKmError(''); }}>
+              Iptal
+            </Button>
+            <Button onClick={handleKmUpdate} disabled={kmSaving || !kmInput}>
+              {kmSaving ? 'Kaydediliyor...' : 'Kaydet'}
             </Button>
           </div>
         </div>

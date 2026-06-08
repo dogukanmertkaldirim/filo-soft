@@ -1,4 +1,4 @@
-import { Key, FileText, ScrollText, History, Banknote, Car, Handshake, CornerDownLeft, FileSearch, Printer, ShieldAlert, RefreshCw, UserCheck, CreditCard as Edit2, Trash2, Shield } from 'lucide-react';
+import { Key, FileText, ScrollText, History, Banknote, Car, Handshake, CornerDownLeft, FileSearch, Printer, ShieldAlert, RefreshCw, UserCheck, CreditCard as Edit2, Trash2, Shield, Gauge } from 'lucide-react';
 import type { Vehicle, Rental, Customer, CompanyProfile, AppUser } from '../../types/database';
 import Modal from '../ui/Modal';
 
@@ -74,6 +74,7 @@ interface VehicleActionsModalProps {
   onToggleKabis: (rental: Rental) => void;
   onViewRentalDetail: (v: Vehicle) => void;
   onSell: (v: Vehicle) => void;
+  onUpdateKm: (v: Vehicle) => void;
   hasLinkedCustomer: boolean;
   hasCustomerUsers: boolean;
 }
@@ -96,6 +97,7 @@ export default function VehicleActionsModal({
   onToggleKabis,
   onViewRentalDetail,
   onSell,
+  onUpdateKm,
   hasLinkedCustomer,
   hasCustomerUsers,
 }: VehicleActionsModalProps) {
@@ -312,6 +314,17 @@ export default function VehicleActionsModal({
                   description="Ruhsat, sigorta ve donanim detaylari."
                   onClick={() => act(() => onEdit(vehicle))}
                 />
+                <ActionCard
+                  icon={<Gauge className="h-7 w-7" />}
+                  iconColor="text-cyan-600"
+                  bgColor="bg-white hover:bg-cyan-50"
+                  borderColor="border-slate-200 hover:border-cyan-400"
+                  title="KM Guncelle"
+                  description="Guncel kilometre bilgisini gir."
+                  onClick={() => act(() => onUpdateKm(vehicle))}
+                  badge={vehicle.current_km ? `${vehicle.current_km.toLocaleString('tr-TR')} km` : undefined}
+                  badgeColor="bg-cyan-100 text-cyan-700"
+                />
               </div>
             </div>
 
@@ -444,6 +457,17 @@ export default function VehicleActionsModal({
                   title="Arac Bilgileri"
                   description="Ruhsat, sigorta ve donanim detaylari."
                   onClick={() => act(() => onEdit(vehicle))}
+                />
+                <ActionCard
+                  icon={<Gauge className="h-7 w-7" />}
+                  iconColor="text-cyan-600"
+                  bgColor="bg-white hover:bg-cyan-50"
+                  borderColor="border-slate-200 hover:border-cyan-400"
+                  title="KM Guncelle"
+                  description="Guncel kilometre bilgisini gir."
+                  onClick={() => act(() => onUpdateKm(vehicle))}
+                  badge={vehicle.current_km ? `${vehicle.current_km.toLocaleString('tr-TR')} km` : undefined}
+                  badgeColor="bg-cyan-100 text-cyan-700"
                 />
               </div>
             </div>
