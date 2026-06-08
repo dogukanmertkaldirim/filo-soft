@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { X, Car, Fuel, Droplets, AlertTriangle, Calculator, CreditCard, Banknote, BookOpen, ChevronRight, Check, Calendar, RotateCcw, ClipboardCheck } from 'lucide-react';
+import { X, Car, Fuel, Droplets, AlertTriangle, Calculator, CreditCard, Banknote, BookOpen, ChevronRight, Check, Calendar, RotateCcw, ClipboardCheck, UserCheck, ExternalLink, Image as ImageIcon } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { formatCurrency } from '../../utils/format';
 import Input from '../ui/Input';
@@ -28,6 +28,20 @@ interface Rental {
   delivery_damage_condition?: Record<string, string> | null;
   vehicles?: { plate_number: string; brand: string; model: string };
   customers?: { company_title: string };
+  handover_payload?: HandoverPayload | null;
+  company_id?: string;
+}
+
+interface HandoverPayload {
+  km: number;
+  fuel_level: string;
+  cleanliness: string;
+  damage_schema: Record<string, string>;
+  photos: string[];
+  signature_url: string | null;
+  submitted_by: string;
+  submitted_at: string;
+  operational_task_id: string;
 }
 
 interface VehicleReturnModalProps {
@@ -73,21 +87,66 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
   );
   const [returnVideoUrl, setReturnVideoUrl] = useState<string | null>(null);
 
+  const [fieldPayload, setFieldPayload] = useState<HandoverPayload | null>(null);
+  const [fieldDataApplied, setFieldDataApplied] = useState(false);
+
   const startFuelLevel = FUEL_LABELS[rental.fuel_status || 'full'] || 100;
   const drivenKm = Math.max(0, endKm - (rental.starting_km || 0));
 
   const plannedEndDate = rental.end_date?.slice(0, 10);
+
+  // Load handover_payload on mount
+  useEffect(() => {
+    async function loadPayload() {
+      const { data } = await supabase
+        .from('rentals')
+        .select('handover_payload')
+        .eq('id', rental.id)
+        .maybeSingle();
+
+      if (data?.handover_payload) {
+        const payload = data.handover_payload as HandoverPayload;
+        setFieldPayload(payload);
+        applyFieldData(payload);
+      }
+    }
+    loadPayload();
+  }, [rental.id]);
+
+  function applyFieldData(payload: HandoverPayload) {
+    if (fieldDataApplied) return;
+    setFieldDataApplied(true);
+
+    // Step 1: KM
+    if (payload.km && payload.km > 0) {
+      setEndKm(payload.km);
+    }
+
+    // Step 2: Fuel
+    const fuelMapping = FUEL_LABELS[payload.fuel_level] ?? null;
+    if (fuelMapping !== null) {
+      setReturnFuelLevel(fuelMapping);
+    }
+
+    // Step 3: Damage
+    if (payload.damage_schema && Object.keys(payload.damage_schema).length > 0) {
+      setReturnDamageCondition(payload.damage_schema);
+    }
+
+    // Step 4: Cleanliness
+    if (payload.cleanliness === 'dirty' || payload.cleanliness === 'needs_detail') {
+      setIsDirty(true);
+    }
+  }
 
   const earlyReturnInfo = useMemo(() => {
     if (!actualReturnDate || !plannedEndDate) return null;
 
     const returnDate = new Date(actualReturnDate);
     const endDate = new Date(plannedEndDate);
-    const startDate = new Date(rental.start_date);
 
     returnDate.setHours(0, 0, 0, 0);
     endDate.setHours(0, 0, 0, 0);
-    startDate.setHours(0, 0, 0, 0);
 
     const diffTime = endDate.getTime() - returnDate.getTime();
     const daysEarly = Math.floor(diffTime / (1000 * 60 * 60 * 24));
@@ -97,11 +156,7 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
     const dailyRate = rental.daily_rate || (rental.monthly_rate ? rental.monthly_rate / 30 : 0);
     const refundAmount = daysEarly * dailyRate;
 
-    return {
-      daysEarly,
-      refundAmount,
-      dailyRate,
-    };
+    return { daysEarly, refundAmount, dailyRate };
   }, [actualReturnDate, plannedEndDate, rental.start_date, rental.daily_rate, rental.monthly_rate]);
 
   const actualRentalDays = useMemo(() => {
@@ -116,19 +171,8 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
     const proRataBaseFee = dailyRate * actualRentalDays;
     const isEarlyReturn = earlyReturnInfo && earlyReturnInfo.daysEarly > 0;
 
-    return {
-      dailyRate,
-      originalTotal,
-      proRataBaseFee,
-      isEarlyReturn,
-    };
+    return { dailyRate, originalTotal, proRataBaseFee, isEarlyReturn };
   }, [rental.daily_rate, rental.monthly_rate, rental.total_amount, actualRentalDays, earlyReturnInfo]);
-
-  const rentalDays = useMemo(() => {
-    const start = new Date(rental.start_date);
-    const end = new Date(rental.end_date);
-    return Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
-  }, [rental.start_date, rental.end_date]);
 
   const kmCalculation = useMemo(() => {
     let dailyKmAllowance = 0;
@@ -147,12 +191,7 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
 
     const overLimit = hasLimit ? Math.max(0, drivenKm - allowedKm) : 0;
 
-    return {
-      dailyKmAllowance,
-      allowedKm,
-      overLimit,
-      hasLimit,
-    };
+    return { dailyKmAllowance, allowedKm, overLimit, hasLimit };
   }, [rental.rental_model, rental.daily_km_limit, rental.monthly_km_limit, actualRentalDays, drivenKm]);
 
   const kmLimit = kmCalculation.allowedKm;
@@ -170,7 +209,7 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
 
   const handleComplete = async () => {
     if (!paymentMethod && totalExtraCharges > 0) {
-      setError('Lütfen ödeme yöntemini seçin');
+      setError('Lutfen odeme yontemini secin');
       return;
     }
 
@@ -183,6 +222,7 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
       const revisedBaseFee = revisedPriceCalculation.proRataBaseFee;
       const revisedTotal = revisedBaseFee + totalExtraCharges;
 
+      // 1. Close the rental
       const { error: rentalError } = await supabase
         .from('rentals')
         .update({
@@ -204,11 +244,13 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
           total_amount: isEarlyReturn ? revisedTotal : (originalTotal + totalExtraCharges),
           return_damage_condition: returnDamageCondition,
           return_video_url: returnVideoUrl || null,
+          handover_payload: null,
         })
         .eq('id', rental.id);
 
       if (rentalError) throw rentalError;
 
+      // 2. Update vehicle status
       const newVehicleStatus = setVehicleToMaintenance ? 'maintenance' : 'idle';
       const { error: vehicleError } = await supabase
         .from('vehicles')
@@ -221,26 +263,74 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
 
       if (vehicleError) throw vehicleError;
 
+      // 3. Generate financial debit records for customer ledger
       if (totalExtraCharges > 0 && paymentMethod === 'add_to_debt') {
-        const { error: expenseError } = await supabase
-          .from('expenses')
-          .insert({
-            vehicle_id: rental.vehicle_id,
-            customer_id: rental.customer_id,
-            expense_type: 'other',
-            amount: totalExtraCharges,
-            expense_date: new Date().toISOString().slice(0, 10),
-            description: `Kiralama teslim ucreti - ${rental.vehicles?.plate_number || 'Araç'}`,
-            notes: `KM: ${extraKmFee > 0 ? formatCurrency(extraKmFee) : '-'}, Yakıt: ${fuelFee > 0 ? formatCurrency(fuelFee) : '-'}, Yikama: ${cleaningFee > 0 ? formatCurrency(cleaningFee) : '-'}, Hasar: ${damageFee > 0 ? formatCurrency(damageFee) : '-'}, Diger: ${otherFee > 0 ? formatCurrency(otherFee) : '-'}`,
-          });
+        const companyId = rental.company_id || null;
+        const invoiceLineItems: { label: string; amount: number }[] = [];
 
-        if (expenseError) console.error('Failed to create expense record:', expenseError);
+        if (extraKmFee > 0) invoiceLineItems.push({ label: 'KM Asim Ucreti', amount: extraKmFee });
+        if (fuelFee > 0) invoiceLineItems.push({ label: 'Yakit Fark Bedeli', amount: fuelFee });
+        if (cleaningFee > 0) invoiceLineItems.push({ label: 'Yikama Ucreti', amount: cleaningFee });
+        if (damageFee > 0) invoiceLineItems.push({ label: 'Hasar Bedeli', amount: damageFee });
+        if (otherFee > 0) invoiceLineItems.push({ label: 'Diger Ucretler', amount: otherFee });
+
+        // Create invoice record
+        const { data: invoiceData } = await supabase
+          .from('invoices')
+          .insert({
+            company_id: companyId,
+            customer_id: rental.customer_id,
+            invoice_type: 'debit',
+            status: 'pending',
+            total_amount: totalExtraCharges,
+            description: `Kiralama Iade Ekstra Bedelleri - ${rental.vehicles?.plate_number || 'Arac'}`,
+            line_items: invoiceLineItems,
+            due_date: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+            rental_id: rental.id,
+          })
+          .select('id')
+          .maybeSingle();
+
+        // Link invoice to rental
+        if (invoiceData?.id) {
+          await supabase
+            .from('rentals')
+            .update({ return_invoice_id: invoiceData.id })
+            .eq('id', rental.id);
+        }
+
+        // Create transaction record as customer debit
+        await supabase
+          .from('transactions')
+          .insert({
+            company_id: companyId,
+            vehicle_id: rental.vehicle_id,
+            rental_id: rental.id,
+            type: 'income',
+            category: 'kiralama_iade',
+            amount: totalExtraCharges,
+            transaction_date: new Date().toISOString().slice(0, 10),
+            description: `Kiralama Iade Ekstra Bedelleri - ${rental.vehicles?.plate_number || 'Arac'} (${invoiceLineItems.map(i => i.label).join(', ')})`,
+            reference_customer_id: rental.customer_id,
+          });
+      }
+
+      // 4. Close the field worker's operational task
+      if (fieldPayload?.operational_task_id) {
+        await supabase
+          .from('operational_tasks')
+          .update({
+            status: 'completed',
+            completed_at: new Date().toISOString(),
+            approval_status: 'approved',
+          })
+          .eq('id', fieldPayload.operational_task_id);
       }
 
       onComplete();
     } catch (err) {
       console.error('Error completing rental:', err);
-      setError('İşlem sırasında hata oluştu');
+      setError('Islem sirasinda hata olustu');
     } finally {
       setLoading(false);
     }
@@ -255,7 +345,7 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
               <Car className="h-5 w-5 text-white" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-white">Araç Teslim Al</h2>
+              <h2 className="text-lg font-semibold text-white">Arac Teslim Al</h2>
               <p className="text-sm text-slate-300">
                 {rental.vehicles?.plate_number} - {rental.vehicles?.brand} {rental.vehicles?.model}
               </p>
@@ -265,6 +355,19 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
             <X className="h-5 w-5 text-white" />
           </button>
         </div>
+
+        {/* Field Data Banner */}
+        {fieldPayload && (
+          <div className="px-6 py-2 bg-teal-50 border-b border-teal-200 flex items-center gap-2">
+            <UserCheck className="h-4 w-4 text-teal-600" />
+            <p className="text-xs text-teal-700 font-medium">
+              Saha personeli ({fieldPayload.submitted_by}) verileri otomatik yuklendi
+              <span className="text-teal-500 ml-1">
+                ({new Date(fieldPayload.submitted_at).toLocaleString('tr-TR')})
+              </span>
+            </p>
+          </div>
+        )}
 
         <div className="flex border-b border-slate-200">
           {[
@@ -320,13 +423,13 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
                 </h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs text-teal-600 mb-1">Planlanan Bitiş</label>
+                    <label className="block text-xs text-teal-600 mb-1">Planlanan Bitis</label>
                     <p className="text-lg font-semibold text-teal-900">
                       {plannedEndDate ? new Date(plannedEndDate).toLocaleDateString('tr-TR') : '-'}
                     </p>
                   </div>
                   <Input
-                    label="Gerçek Teslim Tarihi *"
+                    label="Gercek Teslim Tarihi *"
                     type="date"
                     value={actualReturnDate}
                     onChange={(e) => setActualReturnDate(e.target.value)}
@@ -338,12 +441,12 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
                 <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
                   <div className="flex items-center gap-2 mb-3">
                     <RotateCcw className="h-4 w-4 text-amber-600" />
-                    <span className="font-medium text-amber-900">Erken Dönüş Tespit Edildi</span>
+                    <span className="font-medium text-amber-900">Erken Donus Tespit Edildi</span>
                   </div>
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
-                      <span className="text-amber-700">Erken Dönüş: </span>
-                      <span className="font-bold text-amber-900">{earlyReturnInfo.daysEarly} Gün Once</span>
+                      <span className="text-amber-700">Erken Donus: </span>
+                      <span className="font-bold text-amber-900">{earlyReturnInfo.daysEarly} Gun Once</span>
                     </div>
                     <div>
                       <span className="text-amber-700">Iade/Fark Tutari: </span>
@@ -351,7 +454,7 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
                     </div>
                   </div>
                   <p className="text-xs text-amber-600 mt-2">
-                    * Günluk {formatCurrency(earlyReturnInfo.dailyRate)} x {earlyReturnInfo.daysEarly} gun = {formatCurrency(earlyReturnInfo.refundAmount)} iade
+                    * Gunluk {formatCurrency(earlyReturnInfo.dailyRate)} x {earlyReturnInfo.daysEarly} gun = {formatCurrency(earlyReturnInfo.refundAmount)} iade
                   </p>
                 </div>
               )}
@@ -360,16 +463,21 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
                 <h3 className="font-medium text-slate-900 mb-3 flex items-center gap-2">
                   <Calculator className="h-4 w-4 text-slate-600" />
                   Kilometre Bilgileri
+                  {fieldPayload?.km && (
+                    <span className="ml-auto text-[10px] bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full font-normal">
+                      Saha verisi
+                    </span>
+                  )}
                 </h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs text-slate-500 mb-1">Çıkış KM</label>
+                    <label className="block text-xs text-slate-500 mb-1">Cikis KM</label>
                     <p className="text-lg font-semibold text-slate-900">
                       {(rental.starting_km || 0).toLocaleString('tr-TR')} km
                     </p>
                   </div>
                   <Input
-                    label="Dönüş KM *"
+                    label="Donus KM *"
                     type="number"
                     value={endKm || ''}
                     onChange={(e) => {
@@ -384,10 +492,10 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <div className="text-center p-3 bg-white rounded-lg">
                     <p className="text-xs text-blue-600 mb-1">Kullanilan Sure</p>
-                    <p className="text-xl font-bold text-blue-900">{actualRentalDays} Gün</p>
+                    <p className="text-xl font-bold text-blue-900">{actualRentalDays} Gun</p>
                   </div>
                   <div className="text-center p-3 bg-white rounded-lg">
-                    <p className="text-xs text-blue-600 mb-1">Bu Sure İçin KM Hakki</p>
+                    <p className="text-xs text-blue-600 mb-1">Bu Sure Icin KM Hakki</p>
                     <p className="text-xl font-bold text-blue-900">
                       {kmCalculation.hasLimit ? kmLimit.toLocaleString('tr-TR') : 'Limitsiz'}
                     </p>
@@ -400,11 +508,11 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="text-center p-3 bg-white rounded-lg">
-                    <p className="text-xs text-blue-600 mb-1">Yapılan KM</p>
+                    <p className="text-xs text-blue-600 mb-1">Yapilan KM</p>
                     <p className="text-xl font-bold text-blue-900">{drivenKm.toLocaleString('tr-TR')}</p>
                   </div>
                   <div className={`text-center p-3 rounded-lg ${kmOverage > 0 ? 'bg-red-100' : 'bg-green-100'}`}>
-                    <p className={`text-xs mb-1 ${kmOverage > 0 ? 'text-red-600' : 'text-green-600'}`}>KM Aşımi</p>
+                    <p className={`text-xs mb-1 ${kmOverage > 0 ? 'text-red-600' : 'text-green-600'}`}>KM Asimi</p>
                     <p className={`text-xl font-bold ${kmOverage > 0 ? 'text-red-600' : 'text-green-600'}`}>
                       {kmOverage > 0 ? `+${kmOverage.toLocaleString('tr-TR')}` : '0'}
                     </p>
@@ -422,7 +530,7 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <AlertTriangle className="h-4 w-4 text-red-600" />
-                      <span className="font-medium text-red-800">KM Aşım Ücreti</span>
+                      <span className="font-medium text-red-800">KM Asim Ucreti</span>
                     </div>
                     <span className="text-xs text-red-600">
                       {rental.per_km_overage_fee ? `${rental.per_km_overage_fee} TL/km` : 'Birim fiyat yok'}
@@ -463,11 +571,16 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
               <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
                 <h3 className="font-medium text-amber-900 mb-4 flex items-center gap-2">
                   <Fuel className="h-4 w-4 text-amber-600" />
-                  Yakıt Durumu
+                  Yakit Durumu
+                  {fieldPayload?.fuel_level && (
+                    <span className="ml-auto text-[10px] bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full font-normal">
+                      Saha verisi
+                    </span>
+                  )}
                 </h3>
                 <div className="grid grid-cols-2 gap-6">
                   <div>
-                    <label className="block text-xs text-amber-600 mb-2">Çıkış Yakıti</label>
+                    <label className="block text-xs text-amber-600 mb-2">Cikis Yakiti</label>
                     <div className="flex items-center gap-3">
                       <div className="flex-1 h-4 bg-amber-200 rounded-full overflow-hidden">
                         <div
@@ -479,7 +592,7 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs text-amber-600 mb-2">Dönüş Yakıti</label>
+                    <label className="block text-xs text-amber-600 mb-2">Donus Yakiti</label>
                     <div className="flex items-center gap-3">
                       <input
                         type="range"
@@ -500,11 +613,11 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
                 <div className="p-4 bg-orange-50 rounded-xl border border-orange-200">
                   <div className="flex items-center justify-between mb-3">
                     <span className="font-medium text-orange-800">
-                      Yakıt Farki: %{startFuelLevel - returnFuelLevel}
+                      Yakit Farki: %{startFuelLevel - returnFuelLevel}
                     </span>
                   </div>
                   <CurrencyInput
-                    label="Yakıt Fark Bedeli (TL)"
+                    label="Yakit Fark Bedeli (TL)"
                     value={fuelFee}
                     onChange={setFuelFee}
                   />
@@ -514,7 +627,7 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
               {returnFuelLevel >= startFuelLevel && (
                 <div className="p-4 bg-green-50 rounded-xl border border-green-200 text-center">
                   <Check className="h-8 w-8 text-green-600 mx-auto mb-2" />
-                  <p className="text-green-800 font-medium">Yakıt seviyesi uygun</p>
+                  <p className="text-green-800 font-medium">Yakit seviyesi uygun</p>
                 </div>
               )}
             </div>
@@ -526,6 +639,11 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
                 <h3 className="font-medium text-amber-900 mb-2 flex items-center gap-2">
                   <ClipboardCheck className="h-4 w-4 text-amber-600" />
                   Arac Hasar Kontrolu
+                  {fieldPayload?.damage_schema && Object.keys(fieldPayload.damage_schema).length > 0 && (
+                    <span className="ml-auto text-[10px] bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full font-normal">
+                      Saha verisi yuklendi
+                    </span>
+                  )}
                 </h3>
                 <p className="text-sm text-amber-700 mb-4">
                   Kiralama suresince olusan yeni hasarlari isaretleyin. Teslim alinan durum otomatik olarak yuklenmistir.
@@ -536,8 +654,50 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
                 />
               </div>
 
+              {/* Field Staff Photos */}
+              {fieldPayload?.photos && fieldPayload.photos.length > 0 && (
+                <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
+                  <h4 className="font-medium text-blue-900 mb-3 flex items-center gap-2">
+                    <ImageIcon className="h-4 w-4 text-blue-600" />
+                    Saha Personeli Fotograflari ({fieldPayload.photos.length})
+                  </h4>
+                  <div className="grid grid-cols-3 gap-2">
+                    {fieldPayload.photos.map((url, idx) => (
+                      <a
+                        key={idx}
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block aspect-square rounded-lg overflow-hidden border border-blue-200 hover:border-blue-400 transition-colors relative group"
+                      >
+                        <img src={url} alt={`Foto ${idx + 1}`} className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                          <ExternalLink className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Field Staff Signature */}
+              {fieldPayload?.signature_url && (
+                <div className="p-4 bg-green-50 rounded-xl border border-green-200">
+                  <h4 className="font-medium text-green-900 mb-3 flex items-center gap-2">
+                    <UserCheck className="h-4 w-4 text-green-600" />
+                    Musteri Dijital Imzasi
+                  </h4>
+                  <div className="bg-white p-3 rounded-lg border border-green-200 inline-block">
+                    <img src={fieldPayload.signature_url} alt="Musteri Imzasi" className="h-16 w-auto" />
+                  </div>
+                  <p className="text-xs text-green-600 mt-2">
+                    Imza sahadaki teslim aninda alinmistir ({new Date(fieldPayload.submitted_at).toLocaleString('tr-TR')})
+                  </p>
+                </div>
+              )}
+
               <VideoUpload
-                label="Video Kanıt (İade)"
+                label="Video Kanit (Iade)"
                 videoUrl={returnVideoUrl}
                 onVideoChange={setReturnVideoUrl}
                 storagePath={`returns/${rental.vehicles?.plate_number || rental.vehicle_id}`}
@@ -551,6 +711,11 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
                 <h3 className="font-medium text-slate-900 mb-4 flex items-center gap-2">
                   <Droplets className="h-4 w-4 text-slate-600" />
                   Temizlik Durumu
+                  {fieldPayload?.cleanliness && (
+                    <span className="ml-auto text-[10px] bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full font-normal">
+                      Saha verisi
+                    </span>
+                  )}
                 </h3>
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input
@@ -624,7 +789,7 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
                 <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
                   <div className="flex items-center gap-2 mb-3">
                     <RotateCcw className="h-5 w-5 text-amber-600" />
-                    <span className="font-medium text-amber-900">Erken Dönüş Fiyat Revizesi</span>
+                    <span className="font-medium text-amber-900">Erken Donus Fiyat Revizesi</span>
                   </div>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
@@ -633,7 +798,7 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
                     </div>
                     <div className="flex justify-between">
                       <span className="text-amber-700">Kullanilan Sure:</span>
-                      <span className="font-medium text-amber-900">{actualRentalDays} Gün</span>
+                      <span className="font-medium text-amber-900">{actualRentalDays} Gun</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-amber-700">Pro-Rata Kira Bedeli:</span>
@@ -646,7 +811,7 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
                     </div>
                     {totalExtraCharges > 0 && (
                       <div className="flex justify-between">
-                        <span className="text-amber-700">Ek Ücretler:</span>
+                        <span className="text-amber-700">Ek Ucretler:</span>
                         <span className="font-medium text-amber-900">+{formatCurrency(totalExtraCharges)}</span>
                       </div>
                     )}
@@ -678,19 +843,19 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
               <div className="space-y-2">
                 {extraKmFee > 0 && (
                   <div className="flex justify-between py-2 border-b border-slate-100">
-                    <span className="text-slate-600">KM Aşım Ücreti</span>
+                    <span className="text-slate-600">KM Asim Ucreti</span>
                     <span className="font-medium text-slate-900">{formatCurrency(extraKmFee)}</span>
                   </div>
                 )}
                 {fuelFee > 0 && (
                   <div className="flex justify-between py-2 border-b border-slate-100">
-                    <span className="text-slate-600">Yakıt Farki</span>
+                    <span className="text-slate-600">Yakit Farki</span>
                     <span className="font-medium text-slate-900">{formatCurrency(fuelFee)}</span>
                   </div>
                 )}
                 {cleaningFee > 0 && (
                   <div className="flex justify-between py-2 border-b border-slate-100">
-                    <span className="text-slate-600">Yikama Ücreti</span>
+                    <span className="text-slate-600">Yikama Ucreti</span>
                     <span className="font-medium text-slate-900">{formatCurrency(cleaningFee)}</span>
                   </div>
                 )}
@@ -702,7 +867,7 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
                 )}
                 {otherFee > 0 && (
                   <div className="flex justify-between py-2 border-b border-slate-100">
-                    <span className="text-slate-600">Diger Ücretler</span>
+                    <span className="text-slate-600">Diger Ucretler</span>
                     <span className="font-medium text-slate-900">{formatCurrency(otherFee)}</span>
                   </div>
                 )}
@@ -716,7 +881,7 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
 
               {totalExtraCharges > 0 && (
                 <div className="space-y-3">
-                  <label className="block text-sm font-medium text-slate-700">Ödeme Yontemi *</label>
+                  <label className="block text-sm font-medium text-slate-700">Odeme Yontemi *</label>
                   <div className="grid grid-cols-1 gap-2">
                     <button
                       type="button"
@@ -732,7 +897,7 @@ export default function VehicleReturnModal({ rental, onClose, onComplete }: Vehi
                         <p className={`font-medium ${paymentMethod === 'add_to_debt' ? 'text-blue-900' : 'text-slate-900'}`}>
                           Cariye Borc Olarak Ekle
                         </p>
-                        <p className="text-xs text-slate-500">Müşteri hesabina borc olarak kaydedilir</p>
+                        <p className="text-xs text-slate-500">Musteri hesabina borc olarak kaydedilir ve fatura olusturulur</p>
                       </div>
                     </button>
 

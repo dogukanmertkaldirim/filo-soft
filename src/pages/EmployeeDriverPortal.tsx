@@ -423,6 +423,27 @@ function HandoverWizard({ isOpen, task, onClose, onComplete }: HandoverWizardPro
       file_urls: uploadedFiles,
     }).eq('id', task.id);
 
+    // Save handover_payload to the active rental for this vehicle
+    if (task.vehicle_id) {
+      const handoverPayload = {
+        km: parseInt(km),
+        fuel_level: fuelLevel,
+        cleanliness,
+        damage_schema: damageSchema,
+        photos: uploadedFiles,
+        signature_url: sigUrl,
+        submitted_by: user?.full_name,
+        submitted_at: new Date().toISOString(),
+        operational_task_id: task.id,
+      };
+
+      await supabase
+        .from('rentals')
+        .update({ handover_payload: handoverPayload })
+        .eq('vehicle_id', task.vehicle_id)
+        .eq('status', 'active');
+    }
+
     setSaving(false);
     onComplete();
   }
