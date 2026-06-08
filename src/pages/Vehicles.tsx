@@ -367,6 +367,9 @@ export default function Vehicles() {
   const [kmInput, setKmInput] = useState<string>('');
   const [kmError, setKmError] = useState('');
   const [kmSaving, setKmSaving] = useState(false);
+  const [kmOverrideConfirm, setKmOverrideConfirm] = useState(false);
+
+  const isSuperAdminOrOwner = user?.role === 'super_admin' || user?.role === 'admin';
 
   // Column Visibility
   const COLUMN_STORAGE_KEY = 'vehicles_column_visibility';
@@ -417,8 +420,15 @@ export default function Vehicles() {
     }
     const currentKm = kmVehicle.current_km || 0;
     if (newKm < currentKm) {
-      setKmError(`Hata: Girilen deger mevcut kilometreden (${currentKm.toLocaleString('tr-TR')} km) dusuk olamaz!`);
-      return;
+      if (isSuperAdminOrOwner) {
+        if (!kmOverrideConfirm) {
+          setKmOverrideConfirm(true);
+          return;
+        }
+      } else {
+        setKmError(`Hata: Girilen deger mevcut kilometreden (${currentKm.toLocaleString('tr-TR')} km) dusuk olamaz!`);
+        return;
+      }
     }
     setKmSaving(true);
     setKmError('');
@@ -426,14 +436,24 @@ export default function Vehicles() {
       .from('vehicles')
       .update({ current_km: newKm })
       .eq('id', kmVehicle.id);
-    setKmSaving(false);
     if (error) {
+      setKmSaving(false);
       setKmError('Guncelleme sirasinda bir hata olustu.');
       return;
     }
+    // Audit log for override correction
+    if (newKm < currentKm && isSuperAdminOrOwner) {
+      await supabase.from('activity_logs').insert({
+        company_id: companyId,
+        action: 'odometer_override',
+        details: `${user?.full_name} forced an odometer correction override on vehicle ${kmVehicle.plate} from ${currentKm.toLocaleString('tr-TR')} km to ${newKm.toLocaleString('tr-TR')} km.`,
+      });
+    }
+    setKmSaving(false);
     setShowKmModal(false);
     setKmVehicle(null);
     setKmInput('');
+    setKmOverrideConfirm(false);
     loadVehicles();
   }
 
@@ -441,6 +461,7 @@ export default function Vehicles() {
     setKmVehicle(v);
     setKmInput('');
     setKmError('');
+    setKmOverrideConfirm(false);
     setShowKmModal(true);
   }
 
@@ -6469,7 +6490,7 @@ export default function Vehicles() {
       {/* KM Update Modal */}
       <Modal
         isOpen={showKmModal}
-        onClose={() => { setShowKmModal(false); setKmVehicle(null); setKmError(''); }}
+        onClose={() => { setShowKmModal(false); setKmVehicle(null); setKmError(''); setKmOverrideConfirm(false); }}
         title={`Guncel KM Guncelle: ${kmVehicle?.plate || ''}`}
       >
         <div className="space-y-4">
@@ -6491,7 +6512,7 @@ export default function Vehicles() {
             label="Yeni Kilometre Degeri *"
             type="number"
             value={kmInput}
-            onChange={(e) => { setKmInput(e.target.value); setKmError(''); }}
+            onChange={(e) => { setKmInput(e.target.value); setKmError(''); setKmOverrideConfirm(false); }}
             placeholder="Ornek: 48500"
           />
 
@@ -6502,14 +6523,44 @@ export default function Vehicles() {
             </div>
           )}
 
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="secondary" onClick={() => { setShowKmModal(false); setKmVehicle(null); setKmError(''); }}>
-              Iptal
-            </Button>
-            <Button onClick={handleKmUpdate} disabled={kmSaving || !kmInput}>
-              {kmSaving ? 'Kaydediliyor...' : 'Kaydet'}
-            </Button>
-          </div>
+          {kmOverrideConfirm && (
+            <div className="p-4 bg-amber-50 border-2 border-amber-400 rounded-xl space-y-3">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-amber-900">Dikkat! Mevcut kilometreden daha dusuk bir deger giriyorsunuz.</p>
+                  <p className="text-xs text-amber-700 mt-1">Bu islem veritabanindaki master arac kilometresini geriye cekecektir. Emin misiniz?</p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => setKmOverrideConfirm(false)}
+                  className="flex-1 text-xs"
+                >
+                  Vazgec
+                </Button>
+                <Button
+                  onClick={handleKmUpdate}
+                  disabled={kmSaving}
+                  className="flex-1 text-xs !bg-amber-600 hover:!bg-amber-700"
+                >
+                  {kmSaving ? 'Kaydediliyor...' : 'Evet, Duzelt'}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {!kmOverrideConfirm && (
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="secondary" onClick={() => { setShowKmModal(false); setKmVehicle(null); setKmError(''); setKmOverrideConfirm(false); }}>
+                Iptal
+              </Button>
+              <Button onClick={handleKmUpdate} disabled={kmSaving || !kmInput}>
+                {kmSaving ? 'Kaydediliyor...' : 'Kaydet'}
+              </Button>
+            </div>
+          )}
         </div>
       </Modal>
     </div>
